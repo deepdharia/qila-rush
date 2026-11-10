@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>QILA RUSH - Fort War Crowd Shooter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800;900&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #120a05;
+      font-family: 'Rajdhani', sans-serif;
+      color: #fff;
+    }
+
+    #game-container {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    canvas#webgl-canvas {
+      width: 100% !important;
+      height: 100% !important;
+      display: block;
+    }
+
+    /* UI Overlay */
+    #ui-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    /* Top HUD */
+    .hud-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 16px 20px;
+      gap: 12px;
+      background: linear-gradient(180deg, rgba(14, 8, 4, 0.85) 0%, rgba(14, 8, 4, 0) 100%);
+      pointer-events: auto;
+    }
+
+    .army-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(135deg, rgba(23, 62, 128, 0.95), rgba(9, 28, 62, 0.95));
+      border: 2px solid #38bdf8;
+      box-shadow: 0 4px 15px rgba(56, 189, 248, 0.4), inset 0 0 10px rgba(56, 189, 248, 0.2);
+      border-radius: 24px;
+      padding: 6px 16px;
+      animation: pulse-glow 2s infinite alternate;
+    }
+
+    @keyframes pulse-glow {
+      0% { box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3); }
+      100% { box-shadow: 0 6px 22px rgba(56, 189, 248, 0.7); }
+    }
+
+    .badge-icon {
+      font-size: 24px;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+    }
+
+    .badge-text {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .badge-label {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      color: #93c5fd;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .army-count {
+      font-family: 'Cinzel', serif;
+      font-size: 26px;
+      font-weight: 900;
+      color: #ffffff;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+      line-height: 1;
+    }
+
+    /* Progress Bar */
+    .progress-container {
+      flex: 1;
+      max-width: 320px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 0 10px;
+    }
+
+    .progress-track {
+      position: relative;
+      width: 100%;
+      height: 16px;
+      background: rgba(30, 18, 10, 0.85);
+      border: 2px solid #b45309;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.8);
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #f59e0b, #ef4444, #fbbf24);
+      border-radius: 10px;
+      transition: width 0.2s ease-out;
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.8);
+    }
+
+    .progress-markers {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 4px;
+      pointer-events: none;
+    }
+
+    .progress-label {
+      font-size: 12px;
+      color: #fcd34d;
+      font-weight: 700;
+      letter-spacing: 1px;
+      margin-top: 4px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    }
+
+    /* Top right controls */
+    .hud-controls {
+      display: flex;
+      gap: 8px;
+    }
+
+    .icon-btn {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, rgba(68, 36, 17, 0.9), rgba(28, 14, 6, 0.9));
+      border: 2px solid #d97706;
+      color: #fbbf24;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 18px;
+      cursor: pointer;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+      transition: transform 0.1s, background-color 0.2s;
+    }
+
+    .icon-btn:active {
+      transform: scale(0.92);
+      border-color: #f59e0b;
+    }
+
+    /* Boss HUD */
+    #boss-hud {
+      display: none;
+      position: absolute;
+      top: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      max-width: 480px;
+      background: rgba(20, 10, 5, 0.92);
+      border: 2px solid #dc2626;
+      border-radius: 12px;
+      padding: 10px 16px;
+      box-shadow: 0 0 25px rgba(220, 38, 38, 0.6);
+      text-align: center;
+      pointer-events: none;
+    }
+
+    .boss-name {
+      font-family: 'Cinzel', serif;
+      font-size: 16px;
+      font-weight: 900;
+      color: #fca5a5;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      text-shadow: 0 2px 6px rgba(0,0,0,0.9);
+    }
+
+    .boss-health-track {
+      width: 100%;
+      height: 16px;
+      background: #3f1212;
+      border-radius: 8px;
+      border: 1px solid #7f1d1d;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .boss-health-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #dc2626, #f97316);
+      transition: width 0.15s ease-out;
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.9);
+    }
+
+    /* Combat Floating Notification */
+    #floating-banner {
+      position: absolute;
+      top: 30%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.8);
+      font-family: 'Cinzel', serif;
+      font-size: 28px;
+      font-weight: 900;
+      color: #fef08a;
+      text-shadow: 0 0 15px rgba(234, 179, 8, 0.9), 0 3px 6px rgba(0, 0, 0, 0.9);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      white-space: nowrap;
+      text-align: center;
+      z-index: 15;
+    }
+
+    #floating-banner.show {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1.15);
+    }
+
+    /* Bottom HUD */
+    .hud-bottom {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      padding: 16px 20px 24px;
+      pointer-events: none;
+    }
+
+    /* Active Buff Badges */
+    .buff-tray {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: auto;
+    }
+
+    .buff-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      background: rgba(24, 14, 8, 0.85);
+      border: 1px solid #f59e0b;
+      font-size: 13px;
+      font-weight: 700;
+      color: #fef08a;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      animation: buff-pulse 1.5s infinite alternate;
+    }
+
+    @keyframes buff-pulse {
+      0% { opacity: 0.85; transform: scale(0.98); }
+      100% { opacity: 1; transform: scale(1.02); }
+    }
+
+    /* Cannon Special Ability Button (Topkhana) */
+    .ability-btn-wrapper {
+      pointer-events: auto;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .ability-btn {
+      position: relative;
+      width: 78px;
+      height: 78px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #b45309 0%, #451a03 100%);
+      border: 3px solid #f59e0b;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7), 0 0 15px rgba(245, 158, 11, 0.4);
+      transition: transform 0.15s, box-shadow 0.2s;
+      overflow: hidden;
+    }
+
+    .ability-btn.ready {
+      border-color: #fde047;
+      animation: cannon-ready 1s infinite alternate;
+    }
+
+    @keyframes cannon-ready {
+      0% { box-shadow: 0 0 15px rgba(250, 204, 21, 0.6); }
+      100% { box-shadow: 0 0 30px rgba(250, 204, 21, 1), 0 0 10px rgba(249, 115, 22, 0.8); }
+    }
+
+    .ability-btn:active {
+      transform: scale(0.92);
+    }
+
+    .ability-icon {
+      font-size: 28px;
+      margin-bottom: -2px;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7));
+    }
+
+    .ability-title {
+      font-family: 'Cinzel', serif;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      color: #fef08a;
+      text-transform: uppercase;
+    }
+
+    .ability-cooldown-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(10, 5, 2, 0.75);
+      border-radius: 50%;
+      transform-origin: bottom;
+      transition: height 0.1s linear;
+      pointer-events: none;
+    }
+
+    /* Drag Helper */
+    .drag-hint {
+      position: absolute;
+      bottom: 120px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(15, 8, 4, 0.75);
+      border: 1px solid #78350f;
+      padding: 8px 18px;
+      border-radius: 30px;
+      color: #fef3c7;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      pointer-events: none;
+      animation: drag-bounce 1.5s infinite;
+    }
+
+    @keyframes drag-bounce {
+      0%, 100% { transform: translateX(-50%) translateY(0); }
+      50% { transform: translateX(-50%) translateY(-6px); }
+    }
+
+    /* Modal Screens */
+    .modal-screen {
+      position: absolute;
+      inset: 0;
+      z-index: 50;
+      background: rgba(12, 6, 3, 0.88);
+      backdrop-filter: blur(8px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+      text-align: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    .modal-screen.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal-card {
+      background: linear-gradient(180deg, #2b180a 0%, #170d05 100%);
+      border: 3px solid #d97706;
+      border-radius: 20px;
+      padding: 32px 28px;
+      max-width: 420px;
+      width: 100%;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.9), 0 0 30px rgba(217, 119, 6, 0.3);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    }
+
+    .modal-card::before {
+      content: "";
+      position: absolute;
+      top: -12px;
+      width: 60px;
+      height: 24px;
+      background: #d97706;
+      border-radius: 4px;
+      box-shadow: 0 0 10px #f59e0b;
+    }
+
+    .modal-title {
+      font-family: 'Cinzel', serif;
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      color: #fbbf24;
+      text-shadow: 0 3px 8px rgba(0, 0, 0, 0.8);
+      margin-bottom: 8px;
+    }
+
+    .modal-subtitle {
+      font-size: 15px;
+      color: #d1d5db;
+      margin-bottom: 24px;
+      line-height: 1.4;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      width: 100%;
+      margin-bottom: 24px;
+    }
+
+    .stat-box {
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid #78350f;
+      border-radius: 12px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .stat-val {
+      font-family: 'Cinzel', serif;
+      font-size: 22px;
+      font-weight: 800;
+      color: #fef08a;
+    }
+
+    .stars-row {
+      display: flex;
+      gap: 10px;
+      font-size: 36px;
+      margin-bottom: 20px;
+      color: #f59e0b;
+      filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8));
+    }
+
+    .primary-btn {
+      width: 100%;
+      padding: 14px 24px;
+      border-radius: 30px;
+      font-family: 'Cinzel', serif;
+      font-size: 18px;
+      font-weight: 900;
+      letter-spacing: 1.5px;
+      border: none;
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%);
+      color: #1a0a03;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4), inset 0 2px 4px rgba(255, 255, 255, 0.4);
+      transition: transform 0.1s, box-shadow 0.2s;
+      text-transform: uppercase;
+    }
+
+    .primary-btn:active {
+      transform: scale(0.96);
+    }
+
+    .secondary-btn {
+      width: 100%;
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      background: transparent;
+      border: 1px solid #78350f;
+      color: #fbbf24;
+      cursor: pointer;
+    }
+
+    /* Start Screen Special */
+    #start-screen .modal-title {
+      font-size: 42px;
+      background: linear-gradient(180deg, #fef08a 0%, #f59e0b 50%, #b45309 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 4px;
+    }
+
+    .instructions-box {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px dashed #78350f;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 24px;
+      font-size: 13px;
+      color: #e5e7eb;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="webgl-canvas"></canvas>
+
+    <div id="ui-layer">
+      <!-- Top HUD -->
+      <div class="hud-top">
+        <div class="army-badge">
+          <div class="badge-icon">🛡️</div>
+          <div class="badge-text">
+            <span class="badge-label">Blue Army</span>
+            <span class="army-count" id="ui-army-count">10</span>
+          </div>
+        </div>
+
+        <div class="progress-container">
+          <div class="progress-track">
+            <div class="progress-fill" id="ui-progress-fill"></div>
+            <div class="progress-markers">
+              <span>🚩</span>
+              <span>⚔️</span>
+              <span>🏰</span>
+            </div>
+          </div>
+          <span class="progress-label" id="ui-progress-text">FORTRESS CAUSEWAY</span>
+        </div>
+
+        <div class="hud-controls">
+          <button class="icon-btn" id="btn-sound" title="Toggle Sound">🔊</button>
+          <button class="icon-btn" id="btn-quality" title="Toggle Quality">⚡</button>
+          <button class="icon-btn" id="btn-pause" title="Pause Game">⏸️</button>
+        </div>
+      </div>
+
+      <!-- Boss HUD (Appears when reaching boss) -->
+      <div id="boss-hud">
+        <div class="boss-name">👑 COMMANDER SHER KHAN</div>
+        <div class="boss-health-track">
+          <div class="boss-health-fill" id="ui-boss-health-fill"></div>
+        </div>
+      </div>
+
+      <!-- Floating notification banner -->
+      <div id="floating-banner">+10 WARRIORS!</div>
+
+      <!-- Drag control hint for first few seconds -->
+      <div class="drag-hint" id="ui-drag-hint">
+        <span>👈</span> DRAG TO MOVE ARMY <span>👉</span>
+      </div>
+
+      <!-- Bottom HUD -->
+      <div class="hud-bottom">
+        <div class="buff-tray" id="ui-buff-tray">
+          <!-- Active buffs injected dynamically -->
+        </div>
+
+        <!-- Special Ability Button: Topkhana Cannon -->
+        <div class="ability-btn-wrapper">
+          <button class="ability-btn ready" id="btn-topkhana">
+            <div class="ability-icon">💣</div>
+            <div class="ability-title">TOPKHANA</div>
+            <div class="ability-cooldown-overlay" id="ui-cannon-cd" style="height: 0%;"></div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Start / Main Menu Screen -->
+    <div class="modal-screen active" id="start-screen">
+      <div class="modal-card">
+        <div class="modal-title">QILA RUSH</div>
+        <div class="modal-subtitle">Indian Fortress War Crowd Shooter</div>
+        
+        <div class="instructions-box">
+          ⚔️ <strong>Drag</strong> army left & right to navigate the causeway<br>
+          🛡️ Pass through <strong>Multiplier Gates</strong> to multiply your squad<br>
+          💥 Shoot down <strong>Breakable Barriers</strong> for weapon upgrades<br>
+          💣 Tap <strong>TOPKHANA</strong> for royal cannon bombardment<br>
+          👑 Defeat <strong>Commander Sher Khan</strong> at the inner fort!
+        </div>
+
+        <button class="primary-btn" id="btn-start-game">MARCH TO BATTLE</button>
+      </div>
+    </div>
+
+    <!-- Pause Screen -->
+    <div class="modal-screen" id="pause-screen">
+      <div class="modal-card">
+        <div class="modal-title">GAME PAUSED</div>
+        <div class="modal-subtitle">Fortress siege temporarily halted</div>
+        <button class="primary-btn" id="btn-resume">RESUME BATTLE</button>
+        <button class="secondary-btn" id="btn-restart-pause">RESTART LEVEL</button>
+      </div>
+    </div>
+
+    <!-- Victory Screen -->
+    <div class="modal-screen" id="victory-screen">
+      <div class="modal-card">
+        <div class="modal-title">QILA CONQUERED!</div>
+        <div class="modal-subtitle">The Fortress is under our banner!</div>
+        
+        <div class="stars-row">
+          <span>⭐</span><span>⭐</span><span>⭐</span>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span class="stat-label">Warriors Saved</span>
+            <span class="stat-val" id="stat-victory-army">48</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Enemies Defeated</span>
+            <span class="stat-val" id="stat-victory-kills">112</span>
+          </div>
+        </div>
+
+        <button class="primary-btn" id="btn-victory-next">PLAY AGAIN</button>
+      </div>
+    </div>
+
+    <!-- Defeat Screen -->
+    <div class="modal-screen" id="defeat-screen">
+      <div class="modal-card">
+        <div class="modal-title" style="color: #ef4444;">FORT HAS FALLEN</div>
+        <div class="modal-subtitle">Your army was overwhelmed by the invaders!</div>
+
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span class="stat-label">Distance Cleared</span>
+            <span class="stat-val" id="stat-defeat-dist">65%</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Enemies Slain</span>
+            <span class="stat-val" id="stat-defeat-kills">42</span>
+          </div>
+        </div>
+
+        <button class="primary-btn" id="btn-defeat-retry">TRY AGAIN</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
