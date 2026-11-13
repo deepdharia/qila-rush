@@ -22,6 +22,9 @@ export class ProjectileManager {
   private projectiles: Projectile[] = [];
   private poolSize = 200;
 
+  /** Fired once when a cannonball lands or hits, at its impact point. Set by Game. */
+  public onCannonImpact: ((pos: THREE.Vector3) => void) | null = null;
+
   // Shared assets
   private arrowGeo: THREE.CylinderGeometry;
   private arrowMat: THREE.MeshLambertMaterial;
@@ -195,6 +198,12 @@ export class ProjectileManager {
   }
 
   public deactivate(p: Projectile) {
+    // Cannonballs report their impact once, on deactivation near the ground
+    // (ground landing, barrier/enemy/boss hit). Mid-air lifetime expiry is
+    // filtered out by the height guard.
+    if (p.active && p.isCannonball && p.mesh.position.y < 5 && this.onCannonImpact) {
+      this.onCannonImpact(p.mesh.position.clone());
+    }
     p.active = false;
     p.mesh.visible = false;
   }

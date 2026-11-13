@@ -20,7 +20,7 @@ export class EnemyArmy {
   private sounds: SoundManager;
 
   public enemies: EnemyUnit[] = [];
-  private poolSize = 70;
+  private poolSize = 90; // F4 fix: L30 waves reach 67; 70 truncated stragglers
   private animTimer: number = 0;
   public totalKills: number = 0;
 
