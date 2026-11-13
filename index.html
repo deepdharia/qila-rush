@@ -51,6 +51,21 @@
       justify-content: space-between;
     }
 
+    /* Golden-hour vignette: warm edges frame the 3D view */
+    .vignette {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(ellipse at 50% 42%, rgba(0,0,0,0) 55%, rgba(26, 12, 2, 0.42) 100%),
+        linear-gradient(180deg, rgba(255, 176, 66, 0.06) 0%, rgba(0,0,0,0) 18%, rgba(0,0,0,0) 82%, rgba(20, 9, 2, 0.28) 100%);
+      z-index: 1;
+    }
+
+    /* HUD sits above the vignette */
+    .hud-top, .hud-bottom { position: relative; z-index: 2; }
+    #boss-hud, .drag-hint { z-index: 2; }
+
     /* Top HUD */
     .hud-top {
       display: flex;
@@ -63,15 +78,35 @@
     }
 
     .army-badge {
+      position: relative;
+      overflow: hidden;
       display: flex;
       align-items: center;
       gap: 10px;
       background: linear-gradient(135deg, rgba(23, 62, 128, 0.95), rgba(9, 28, 62, 0.95));
-      border: 2px solid #38bdf8;
-      box-shadow: 0 4px 15px rgba(56, 189, 248, 0.4), inset 0 0 10px rgba(56, 189, 248, 0.2);
+      border: 2px solid #f59e0b;
+      outline: 1px solid rgba(254, 240, 138, 0.65);
+      outline-offset: 2px;
+      box-shadow: 0 4px 15px rgba(245, 158, 11, 0.35), inset 0 0 10px rgba(56, 189, 248, 0.2);
       border-radius: 24px;
       padding: 6px 16px;
       animation: pulse-glow 2s infinite alternate;
+    }
+
+    /* Gold shine sweep across the army badge */
+    .army-badge::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(115deg, transparent 30%, rgba(254, 240, 138, 0.35) 50%, transparent 70%);
+      transform: translateX(-120%);
+      animation: badge-shine 3.2s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    @keyframes badge-shine {
+      0%, 55% { transform: translateX(-120%); }
+      90%, 100% { transform: translateX(120%); }
     }
 
     @keyframes pulse-glow {
@@ -92,18 +127,27 @@
     .badge-label {
       font-size: 11px;
       letter-spacing: 1.5px;
-      color: #93c5fd;
+      color: #bfdbfe;
       text-transform: uppercase;
       font-weight: 700;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.9);
     }
 
     .army-count {
+      display: inline-block;
       font-family: 'Cinzel', serif;
       font-size: 26px;
       font-weight: 900;
+      font-variant-numeric: tabular-nums;
       color: #ffffff;
       text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
       line-height: 1;
+      animation: count-glow 1.6s ease-in-out infinite;
+    }
+
+    @keyframes count-glow {
+      0%, 100% { text-shadow: 0 2px 4px rgba(0,0,0,0.8), 0 0 6px rgba(56, 189, 248, 0.25); transform: scale(1); }
+      50% { text-shadow: 0 2px 4px rgba(0,0,0,0.8), 0 0 14px rgba(253, 224, 71, 0.75); transform: scale(1.05); }
     }
 
     /* Progress Bar */
@@ -122,18 +166,37 @@
       height: 16px;
       background: rgba(30, 18, 10, 0.85);
       border: 2px solid #b45309;
+      outline: 1px solid rgba(253, 224, 71, 0.55);
+      outline-offset: 1px;
       border-radius: 12px;
       overflow: hidden;
       box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.8);
     }
 
     .progress-fill {
+      position: relative;
+      overflow: hidden;
       height: 100%;
       width: 0%;
       background: linear-gradient(90deg, #f59e0b, #ef4444, #fbbf24);
       border-radius: 10px;
       transition: width 0.2s ease-out;
       box-shadow: 0 0 10px rgba(245, 158, 11, 0.8);
+    }
+
+    /* Shimmer sweep travelling along the progress fill */
+    .progress-fill::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(115deg, transparent 25%, rgba(255, 255, 255, 0.55) 50%, transparent 75%);
+      background-size: 220% 100%;
+      animation: progress-shimmer 2.4s linear infinite;
+    }
+
+    @keyframes progress-shimmer {
+      0% { background-position: 180% 0; }
+      100% { background-position: -120% 0; }
     }
 
     .progress-markers {
@@ -148,11 +211,11 @@
 
     .progress-label {
       font-size: 12px;
-      color: #fcd34d;
+      color: #fde68a;
       font-weight: 700;
       letter-spacing: 1px;
       margin-top: 4px;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+      text-shadow: 0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6);
     }
 
     /* Top right controls */
@@ -167,6 +230,8 @@
       border-radius: 50%;
       background: linear-gradient(135deg, rgba(68, 36, 17, 0.9), rgba(28, 14, 6, 0.9));
       border: 2px solid #d97706;
+      outline: 1px solid rgba(253, 224, 71, 0.45);
+      outline-offset: 1px;
       color: #fbbf24;
       display: flex;
       justify-content: center;
@@ -186,18 +251,26 @@
     #boss-hud {
       display: none;
       position: absolute;
-      top: 80px;
+      top: 104px;
       left: 50%;
       transform: translateX(-50%);
       width: 90%;
       max-width: 480px;
       background: rgba(20, 10, 5, 0.92);
       border: 2px solid #dc2626;
+      outline: 1px solid rgba(253, 224, 71, 0.6);
+      outline-offset: 2px;
       border-radius: 12px;
       padding: 10px 16px;
       box-shadow: 0 0 25px rgba(220, 38, 38, 0.6);
       text-align: center;
       pointer-events: none;
+      animation: boss-pulse 1.4s ease-in-out infinite;
+    }
+
+    @keyframes boss-pulse {
+      0%, 100% { box-shadow: 0 0 18px rgba(220, 38, 38, 0.45); }
+      50% { box-shadow: 0 0 32px rgba(220, 38, 38, 0.85), 0 0 12px rgba(253, 224, 71, 0.5); }
     }
 
     .boss-name {
@@ -238,8 +311,9 @@
       font-family: 'Cinzel', serif;
       font-size: 28px;
       font-weight: 900;
+      letter-spacing: 1px;
       color: #fef08a;
-      text-shadow: 0 0 15px rgba(234, 179, 8, 0.9), 0 3px 6px rgba(0, 0, 0, 0.9);
+      text-shadow: 0 0 15px rgba(234, 179, 8, 0.9), 0 3px 6px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 1);
       opacity: 0;
       pointer-events: none;
       transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
@@ -276,11 +350,13 @@
       gap: 6px;
       padding: 6px 12px;
       border-radius: 20px;
-      background: rgba(24, 14, 8, 0.85);
+      background: rgba(24, 14, 8, 0.92);
       border: 1px solid #f59e0b;
+      border-left: 4px solid #fde047;
       font-size: 13px;
       font-weight: 700;
-      color: #fef08a;
+      color: #fef9c3;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.9);
       box-shadow: 0 2px 8px rgba(0,0,0,0.5);
       animation: buff-pulse 1.5s infinite alternate;
     }
@@ -319,6 +395,8 @@
 
     .ability-btn.ready {
       border-color: #fde047;
+      outline: 2px solid rgba(253, 224, 71, 0.75);
+      outline-offset: 3px;
       animation: cannon-ready 1s infinite alternate;
     }
 
@@ -365,14 +443,17 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      background: rgba(15, 8, 4, 0.75);
-      border: 1px solid #78350f;
+      background: rgba(15, 8, 4, 0.82);
+      border: 1px solid #f59e0b;
+      outline: 1px solid rgba(253, 224, 71, 0.4);
+      outline-offset: 1px;
       padding: 8px 18px;
       border-radius: 30px;
       color: #fef3c7;
       font-size: 14px;
       font-weight: 600;
       letter-spacing: 1px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.9);
       pointer-events: none;
       animation: drag-bounce 1.5s infinite;
     }
@@ -408,6 +489,8 @@
     .modal-card {
       background: linear-gradient(180deg, #2b180a 0%, #170d05 100%);
       border: 3px solid #d97706;
+      outline: 1px solid rgba(253, 224, 71, 0.55);
+      outline-offset: 4px;
       border-radius: 20px;
       padding: 32px 28px;
       max-width: 420px;
@@ -430,6 +513,18 @@
       box-shadow: 0 0 10px #f59e0b;
     }
 
+    /* Matching gold tab at the bottom edge for a framed look */
+    .modal-card::after {
+      content: "";
+      position: absolute;
+      bottom: -12px;
+      width: 60px;
+      height: 24px;
+      background: #d97706;
+      border-radius: 4px;
+      box-shadow: 0 0 10px #f59e0b;
+    }
+
     .modal-title {
       font-family: 'Cinzel', serif;
       font-size: 32px;
@@ -442,7 +537,8 @@
 
     .modal-subtitle {
       font-size: 15px;
-      color: #d1d5db;
+      color: #f3f4f6;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.9);
       margin-bottom: 24px;
       line-height: 1.4;
     }
@@ -541,6 +637,326 @@
       color: #e5e7eb;
       line-height: 1.5;
     }
+
+    /* ---------- Phase 3: score / combo HUD ---------- */
+    #hud-score {
+      position: absolute;
+      top: 66px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .score-chip {
+      background: rgba(15, 8, 4, 0.85);
+      border: 1px solid #d97706;
+      border-radius: 16px;
+      padding: 3px 12px;
+      font-family: 'Cinzel', serif;
+      font-size: 15px;
+      font-weight: 800;
+      color: #fef08a;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+      white-space: nowrap;
+    }
+
+    #ui-combo-badge {
+      display: none;
+      background: rgba(120, 20, 5, 0.9);
+      border: 1px solid #f59e0b;
+      border-radius: 16px;
+      padding: 3px 10px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #fde047;
+      white-space: nowrap;
+      animation: buff-pulse 0.6s infinite alternate;
+    }
+
+    /* ---------- Phase 3: wallet + menu ---------- */
+    .wallet-bar {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      width: 100%;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+
+    .wallet-item {
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid #78350f;
+      border-radius: 14px;
+      padding: 6px 12px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #fef3c7;
+    }
+
+    .menu-stats {
+      font-size: 13px;
+      color: #d6d3d1;
+      margin-bottom: 18px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Long screens (map/shop) scroll inside the modal */
+    .modal-screen {
+      overflow-y: auto;
+      justify-content: flex-start;
+      padding-top: 40px;
+      padding-bottom: 40px;
+    }
+
+    .modal-card.wide {
+      max-width: 560px;
+    }
+
+    .screen-coins {
+      font-family: 'Cinzel', serif;
+      font-size: 18px;
+      font-weight: 800;
+      color: #fef08a;
+      margin-bottom: 14px;
+    }
+
+    /* ---------- Phase 3: level map ---------- */
+    .level-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      width: 100%;
+      margin-bottom: 16px;
+    }
+
+    .level-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      background: linear-gradient(180deg, #3a2408 0%, #1c0f05 100%);
+      border: 2px solid #d97706;
+      border-radius: 12px;
+      padding: 8px 2px 6px;
+      color: #fef3c7;
+      cursor: pointer;
+      font-family: 'Rajdhani', sans-serif;
+    }
+
+    .level-btn:active { transform: scale(0.94); }
+
+    .level-btn.locked {
+      opacity: 0.45;
+      border-color: #57534e;
+      cursor: not-allowed;
+    }
+
+    .level-btn.boss-level { border-color: #dc2626; }
+
+    .level-num {
+      font-family: 'Cinzel', serif;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .level-stars {
+      font-size: 11px;
+      color: #f59e0b;
+      letter-spacing: 1px;
+      min-height: 13px;
+    }
+
+    .level-name {
+      font-size: 9px;
+      color: #d6d3d1;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+      overflow: hidden;
+      max-width: 100%;
+      text-overflow: ellipsis;
+    }
+
+    .daily-challenge-box { width: 100%; margin-bottom: 12px; }
+    .daily-sub { font-size: 12px; letter-spacing: 0.5px; opacity: 0.85; }
+    .daily-done {
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid #16a34a;
+      border-radius: 12px;
+      padding: 12px;
+      color: #bbf7d0;
+      font-weight: 700;
+    }
+
+    /* ---------- Phase 3: shop ---------- */
+    .shop-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid #78350f;
+      border-radius: 12px;
+      padding: 10px;
+      margin-bottom: 10px;
+      text-align: left;
+    }
+
+    .shop-icon { font-size: 26px; }
+    .shop-info { flex: 1; min-width: 0; }
+    .shop-name { font-size: 15px; font-weight: 700; color: #fef3c7; }
+    .shop-pips { font-size: 11px; letter-spacing: 2px; }
+    .pip-on { color: #f59e0b; }
+    .pip-off { color: #57534e; }
+    .shop-desc { font-size: 12px; color: #d6d3d1; line-height: 1.35; }
+
+    .buy-btn {
+      flex-shrink: 0;
+      padding: 8px 12px;
+      border-radius: 18px;
+      font-family: 'Cinzel', serif;
+      font-size: 13px;
+      font-weight: 800;
+      border: none;
+      background: linear-gradient(135deg, #f59e0b, #b45309);
+      color: #1a0a03;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .buy-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .maxed-label { font-size: 13px; font-weight: 800; color: #4ade80; }
+
+    /* ---------- Phase 3: daily rewards + missions ---------- */
+    .daily-track {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 5px;
+      width: 100%;
+      margin-bottom: 14px;
+    }
+
+    .daily-day {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid #78350f;
+      border-radius: 10px;
+      padding: 6px 2px;
+      min-height: 64px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .daily-day.today { border-color: #fde047; box-shadow: 0 0 10px rgba(253, 224, 71, 0.5); }
+    .daily-day.done { border-color: #16a34a; opacity: 0.75; }
+    .daily-day-num { font-size: 10px; font-weight: 700; color: #d6d3d1; }
+    .daily-day-reward { font-size: 11px; font-weight: 700; color: #fef08a; text-align: center; }
+    .daily-day-state { font-size: 10px; color: #4ade80; font-weight: 700; min-height: 12px; }
+
+    .section-label {
+      width: 100%;
+      text-align: left;
+      font-family: 'Cinzel', serif;
+      font-size: 15px;
+      font-weight: 800;
+      color: #fbbf24;
+      letter-spacing: 1px;
+      margin: 6px 0 10px;
+    }
+
+    .mission-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid #78350f;
+      border-radius: 12px;
+      padding: 10px;
+      margin-bottom: 10px;
+      text-align: left;
+    }
+
+    .mission-row.done { border-color: #16a34a; }
+    .mission-info { flex: 1; min-width: 0; }
+    .mission-label { font-size: 14px; font-weight: 700; color: #fef3c7; margin-bottom: 6px; }
+    .mission-bar {
+      height: 8px;
+      background: #292524;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .mission-fill { height: 100%; background: linear-gradient(90deg, #f59e0b, #fde047); }
+    .mission-progress { font-size: 13px; font-weight: 700; color: #d6d3d1; }
+    .mission-done { font-size: 13px; font-weight: 800; color: #4ade80; }
+
+    /* ---------- Phase 3: pre-level + boosters ---------- */
+    .prelevel-line {
+      font-size: 14px;
+      color: #e5e7eb;
+      line-height: 1.5;
+      margin-bottom: 4px;
+    }
+
+    .booster-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid #78350f;
+      border-radius: 12px;
+      padding: 10px;
+      margin-bottom: 10px;
+      color: #fff;
+      cursor: pointer;
+      text-align: left;
+      font-family: 'Rajdhani', sans-serif;
+    }
+
+    .booster-row.selected { border-color: #fde047; box-shadow: 0 0 12px rgba(253, 224, 71, 0.5); }
+    .booster-icon { font-size: 26px; }
+    .booster-info { flex: 1; font-size: 14px; color: #fef3c7; }
+    .booster-desc { font-size: 12px; color: #d6d3d1; }
+    .booster-state { font-size: 12px; font-weight: 800; color: #fbbf24; white-space: nowrap; }
+
+    /* ---------- Phase 3: chest ---------- */
+    .chest-emoji-btn {
+      font-size: 110px;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      line-height: 1;
+      margin: 10px 0 16px;
+      filter: drop-shadow(0 6px 20px rgba(245, 158, 11, 0.6));
+      animation: buff-pulse 1s infinite alternate;
+    }
+
+    .chest-emoji-btn:disabled { animation: none; cursor: default; }
+    .chest-coins {
+      font-family: 'Cinzel', serif;
+      font-size: 28px;
+      font-weight: 900;
+      color: #fef08a;
+      margin-bottom: 6px;
+    }
+    .chest-booster { font-size: 16px; font-weight: 700; color: #bbf7d0; }
+
+    .star-on { color: #f59e0b; }
+    .star-off { color: #57534e; opacity: 0.6; }
+
+    .revive-label {
+      font-size: 13px;
+      color: #fca5a5;
+      margin: 2px 0 10px;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
@@ -548,6 +964,9 @@
     <canvas id="webgl-canvas"></canvas>
 
     <div id="ui-layer">
+      <!-- Golden-hour vignette over the 3D view (static, pointer-transparent) -->
+      <div class="vignette"></div>
+
       <!-- Top HUD -->
       <div class="hud-top">
         <div class="army-badge">
@@ -585,6 +1004,13 @@
         </div>
       </div>
 
+      <!-- Phase 3: live score / combo / run coins -->
+      <div id="hud-score">
+        <span class="score-chip">⭐ <span id="ui-score-value">0</span></span>
+        <span id="ui-combo-badge">🔥 x2 COMBO 3</span>
+        <span class="score-chip" id="ui-run-coins">🪙 0</span>
+      </div>
+
       <!-- Floating notification banner -->
       <div id="floating-banner">+10 WARRIORS!</div>
 
@@ -615,6 +1041,13 @@
       <div class="modal-card">
         <div class="modal-title">QILA RUSH</div>
         <div class="modal-subtitle">Indian Fortress War Crowd Shooter</div>
+
+        <div class="wallet-bar">
+          <span class="wallet-item" id="wallet-coins">🪙 0</span>
+          <span class="wallet-item" id="wallet-lives">❤️ 5/5</span>
+          <span class="wallet-item" id="wallet-lives-timer">FULL</span>
+        </div>
+        <div class="menu-stats" id="menu-stats">🏆 0 wins · 🔥 0 streak · ⭐ Best 0</div>
         
         <div class="instructions-box">
           ⚔️ <strong>Drag</strong> army left & right to navigate the causeway<br>
@@ -625,6 +1058,8 @@
         </div>
 
         <button class="primary-btn" id="btn-start-game">MARCH TO BATTLE</button>
+        <button class="secondary-btn" id="btn-menu-shop">🛒 UPGRADE SHOP</button>
+        <button class="secondary-btn" id="btn-menu-daily">🎁 DAILY REWARDS &amp; MISSIONS</button>
       </div>
     </div>
 
@@ -635,6 +1070,7 @@
         <div class="modal-subtitle">Fortress siege temporarily halted</div>
         <button class="primary-btn" id="btn-resume">RESUME BATTLE</button>
         <button class="secondary-btn" id="btn-restart-pause">RESTART LEVEL</button>
+        <button class="secondary-btn" id="btn-pause-quit">QUIT TO MAP</button>
       </div>
     </div>
 
@@ -644,8 +1080,8 @@
         <div class="modal-title">QILA CONQUERED!</div>
         <div class="modal-subtitle">The Fortress is under our banner!</div>
         
-        <div class="stars-row">
-          <span>⭐</span><span>⭐</span><span>⭐</span>
+        <div class="stars-row" id="victory-stars">
+          <span class="star-on">⭐</span><span class="star-on">⭐</span><span class="star-on">⭐</span>
         </div>
 
         <div class="stats-grid">
@@ -657,9 +1093,28 @@
             <span class="stat-label">Enemies Defeated</span>
             <span class="stat-val" id="stat-victory-kills">112</span>
           </div>
+          <div class="stat-box">
+            <span class="stat-label">Score</span>
+            <span class="stat-val" id="stat-victory-score">0</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Coins Earned</span>
+            <span class="stat-val" id="stat-victory-coins">🪙 +0</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Best Score</span>
+            <span class="stat-val" id="stat-victory-best">0</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Chest</span>
+            <span class="stat-val">🎁 Ready!</span>
+          </div>
         </div>
 
-        <button class="primary-btn" id="btn-victory-next">PLAY AGAIN</button>
+        <button class="primary-btn" id="btn-victory-chest">🎁 OPEN VICTORY CHEST</button>
+        <button class="secondary-btn" id="btn-victory-next">NEXT LEVEL</button>
+        <button class="secondary-btn" id="btn-victory-share">📣 SHARE SCORE</button>
+        <button class="secondary-btn" id="btn-victory-map">LEVEL MAP</button>
       </div>
     </div>
 
@@ -678,9 +1133,81 @@
             <span class="stat-label">Enemies Slain</span>
             <span class="stat-val" id="stat-defeat-kills">42</span>
           </div>
+          <div class="stat-box">
+            <span class="stat-label">Score</span>
+            <span class="stat-val" id="stat-defeat-score">0</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Lives</span>
+            <span class="stat-val">-1 ❤️</span>
+          </div>
         </div>
 
-        <button class="primary-btn" id="btn-defeat-retry">TRY AGAIN</button>
+        <button class="primary-btn" id="btn-revive">⚔️ REVIVE HERE</button>
+        <div class="revive-label" id="revive-cost-label"></div>
+        <button class="secondary-btn" id="btn-defeat-retry">TRY AGAIN</button>
+        <button class="secondary-btn" id="btn-defeat-map">LEVEL MAP</button>
+      </div>
+    </div>
+
+    <!-- Level Map Screen -->
+    <div class="modal-screen" id="map-screen">
+      <div class="modal-card wide">
+        <div class="modal-title">LEVEL MAP</div>
+        <div class="modal-subtitle">Conquer all 30 forts — 👑 marks a boss fort</div>
+        <div class="screen-coins" id="map-coins">🪙 0</div>
+        <div class="daily-challenge-box" id="daily-challenge-card"></div>
+        <div class="level-grid" id="level-grid"></div>
+        <button class="secondary-btn" id="btn-map-back">← BACK TO MENU</button>
+      </div>
+    </div>
+
+    <!-- Upgrade Shop Screen -->
+    <div class="modal-screen" id="shop-screen">
+      <div class="modal-card wide">
+        <div class="modal-title">UPGRADE SHOP</div>
+        <div class="modal-subtitle">Spend coins earned in battle — upgrades apply in every level</div>
+        <div class="screen-coins" id="shop-coins">🪙 0</div>
+        <div id="shop-list"></div>
+        <button class="secondary-btn" id="btn-shop-back">← BACK TO MENU</button>
+      </div>
+    </div>
+
+    <!-- Daily Rewards & Missions Screen -->
+    <div class="modal-screen" id="daily-screen">
+      <div class="modal-card wide">
+        <div class="modal-title">DAILY REWARDS</div>
+        <div class="modal-subtitle">Claim once a day — come back every day to grow your streak</div>
+        <div class="daily-track" id="daily-track"></div>
+        <button class="primary-btn" id="btn-claim-daily">CLAIM REWARD</button>
+        <div class="section-label">🎯 TODAY'S MISSIONS</div>
+        <div id="missions-list"></div>
+        <button class="secondary-btn" id="btn-daily-back">← BACK TO MENU</button>
+      </div>
+    </div>
+
+    <!-- Pre-Level Screen (boosters + start) -->
+    <div class="modal-screen" id="prelevel-screen">
+      <div class="modal-card wide">
+        <div class="modal-title" id="prelevel-title">LEVEL 1</div>
+        <div class="modal-subtitle" id="prelevel-info"></div>
+        <div class="screen-coins" id="prelevel-coins">🪙 0</div>
+        <div class="section-label">🎒 BOOSTERS — TAP TO USE (CONSUMED ON START)</div>
+        <div id="booster-list"></div>
+        <button class="primary-btn" id="btn-prelevel-start">⚔️ START BATTLE</button>
+        <button class="secondary-btn" id="btn-prelevel-back">← LEVEL MAP</button>
+      </div>
+    </div>
+
+    <!-- Victory Chest Screen -->
+    <div class="modal-screen" id="chest-screen">
+      <div class="modal-card">
+        <div class="modal-title" id="chest-title">🎁 VICTORY CHEST</div>
+        <div class="modal-subtitle">Tap the chest to open it — no waiting, no timers</div>
+        <button class="chest-emoji-btn" id="chest-emoji-btn">🎁</button>
+        <div id="chest-reward"></div>
+        <button class="primary-btn" id="btn-chest-continue" style="margin-top:16px;">CONTINUE</button>
+        <button class="secondary-btn" id="btn-chest-map">LEVEL MAP</button>
       </div>
     </div>
   </div>
