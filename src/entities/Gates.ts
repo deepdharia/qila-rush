@@ -252,6 +252,36 @@ export class GateManager {
     }
   }
 
+  /**
+   * Phase 2 (Doomfall endless): shift every gate along the road (world
+   * wrap — the player marches forever, so the world slides back under
+   * them). Stored z and the scene group move together.
+   */
+  public shiftZ(delta: number) {
+    for (const g of this.gates) {
+      g.z += delta;
+      g.group.position.z += delta;
+    }
+  }
+
+  /**
+   * Phase 2 (Doomfall endless): drop gates the player has already passed
+   * (collected or not — a gate behind the player can never trigger again),
+   * so a long endless run does not accumulate canvas textures forever.
+   */
+  public pruneBefore(z: number) {
+    const kept: GateData[] = [];
+    for (const g of this.gates) {
+      if (g.z < z) {
+        this.scene.remove(g.group);
+        g.texture.dispose();
+      } else {
+        kept.push(g);
+      }
+    }
+    this.gates = kept;
+  }
+
   public dispose() {
     this.gates.forEach(g => {
       this.scene.remove(g.group);

@@ -8,6 +8,9 @@ export interface Projectile {
   velocity: THREE.Vector3;
   damage: number;
   isFire: boolean;
+  // Phase 5 (Doomfall war-gear): piercing arrows punch through a
+  // shield-bearer's front guard (see EnemyArmy.applyDamage).
+  isPiercing: boolean;
   isCannonball: boolean;
   splashRadius: number;
   life: number;
@@ -21,6 +24,9 @@ export class ProjectileManager {
   private sounds: SoundManager;
   private projectiles: Projectile[] = [];
   private poolSize = 200;
+
+  /** Fired once when a cannonball lands or hits, at its impact point. Set by Game. */
+  public onCannonImpact: ((pos: THREE.Vector3) => void) | null = null;
 
   // Shared assets
   private arrowGeo: THREE.CylinderGeometry;
@@ -74,6 +80,7 @@ export class ProjectileManager {
         velocity: new THREE.Vector3(),
         damage: CONSTANTS.ARROW_DAMAGE,
         isFire: false,
+        isPiercing: false,
         isCannonball: false,
         splashRadius: 0,
         life: 0,
@@ -95,13 +102,15 @@ export class ProjectileManager {
   public spawnArrow(
     startPos: THREE.Vector3,
     targetPos: THREE.Vector3,
-    isFire: boolean = false
+    isFire: boolean = false,
+    isPiercing: boolean = false
   ) {
     const p = this.getFreeProjectile();
     if (!p) return;
 
     p.active = true;
     p.isFire = isFire;
+    p.isPiercing = isPiercing;
     p.isCannonball = false;
     p.damage = isFire
       ? CONSTANTS.ARROW_DAMAGE * CONSTANTS.FIRE_DAMAGE_MULTIPLIER
@@ -139,6 +148,7 @@ export class ProjectileManager {
 
     p.active = true;
     p.isFire = true;
+    p.isPiercing = false;
     p.isCannonball = true;
     p.damage = CONSTANTS.CANNON_DAMAGE;
     p.splashRadius = CONSTANTS.CANNON_SPLASH_RADIUS;
@@ -195,6 +205,12 @@ export class ProjectileManager {
   }
 
   public deactivate(p: Projectile) {
+    // Cannonballs report their impact once, on deactivation near the ground
+    // (ground landing, barrier/enemy/boss hit). Mid-air lifetime expiry is
+    // filtered out by the height guard.
+    if (p.active && p.isCannonball && p.mesh.position.y < 5 && this.onCannonImpact) {
+      this.onCannonImpact(p.mesh.position.clone());
+    }
     p.active = false;
     p.mesh.visible = false;
   }

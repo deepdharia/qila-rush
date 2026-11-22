@@ -1,9 +1,10 @@
 export class SoundManager {
   private ctx: AudioContext | null = null;
-  private isMuted: boolean = false;
+  private isMutedFlag: boolean = false;
   private bgmInterval: number | null = null;
   private bgmTempo: number = 135; // BPM
   private isBossEncounter: boolean = false;
+  private noiseBuffer: AudioBuffer | null = null;
 
   constructor() {
     // AudioContext will be initialized upon user gesture
@@ -17,19 +18,33 @@ export class SoundManager {
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
+    if (!this.noiseBuffer && this.ctx) {
+      // 1s of white noise, built once and reused by every boom/rumble.
+      const len = this.ctx.sampleRate;
+      this.noiseBuffer = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const data = this.noiseBuffer.getChannelData(0);
+      for (let i = 0; i < len; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+    }
     if (!this.bgmInterval) {
       this.startBattleRhythm();
     }
   }
 
+  /** True while the user has muted audio — haptics respect this too. */
+  public isMuted(): boolean {
+    return this.isMutedFlag;
+  }
+
   public toggleMute(): boolean {
-    this.isMuted = !this.isMuted;
-    if (this.isMuted && this.ctx) {
+    this.isMutedFlag = !this.isMutedFlag;
+    if (this.isMutedFlag && this.ctx) {
       // suspend or mute
-    } else if (!this.isMuted && this.ctx && this.ctx.state === 'suspended') {
+    } else if (!this.isMutedFlag && this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
-    return !this.isMuted;
+    return !this.isMutedFlag;
   }
 
   public setBossMode(active: boolean) {
@@ -49,7 +64,7 @@ export class SoundManager {
     const intervalMs = (60 / this.bgmTempo) * 1000 / 2; // 8th notes
 
     this.bgmInterval = window.setInterval(() => {
-      if (this.isMuted || !this.ctx || this.ctx.state !== 'running') return;
+      if (this.isMutedFlag || !this.ctx || this.ctx.state !== 'running') return;
 
       const step = beat % 8;
       // Dhol pattern: 0: Dha (Deep Bass + Rim), 2: Dhin (Deep Bass), 4: Dha, 5: Ta (Sharp rim), 6: Dhin
@@ -62,12 +77,67 @@ export class SoundManager {
         this.playNagadaRoll(0.18);
       }
 
+      // Boss-fight layer: a low war-drone swell on every bar's downbeat,
+      // on top of the faster 165 BPM tempo set by setBossMode.
+      if (this.isBossEncounter && beat % 16 === 0) {
+        this.playBossDrone();
+      }
+
       beat++;
     }, intervalMs);
   }
 
+  /** Low war-horn drone that marks each bar during the boss fight. */
+  private playBossDrone() {
+    if (this.isMutedFlag || !this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(55, now);
+    osc.frequency.linearRampToValueAtTime(65, now + 0.4);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.12, now + 0.15);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.9);
+  }
+
+  /** Filtered white-noise burst (boom / rumble). Buffer is built once in init(). */
+  private playNoiseBurst(duration: number, filterFreq: number, volume: number) {
+    if (this.isMutedFlag || !this.ctx || !this.noiseBuffer) return;
+    const now = this.ctx.currentTime;
+
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    src.loop = true;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(filterFreq, now);
+    filter.frequency.exponentialRampToValueAtTime(Math.max(40, filterFreq * 0.2), now + duration);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    src.start(now);
+    src.stop(now + duration);
+  }
+
   public playDholBass(volume: number = 0.4) {
-    if (this.isMuted || !this.ctx) return;
+    if (this.isMutedFlag || !this.ctx) return;
     const now = this.ctx.currentTime;
 
     const osc = this.ctx.createOscillator();
@@ -89,7 +159,7 @@ export class SoundManager {
   }
 
   public playDholRim(volume: number = 0.25) {
-    if (this.isMuted || !this.ctx) return;
+    if (this.isMutedFlag || !this.ctx) return;
     const now = this.ctx.currentTime;
 
     const osc = this.ctx.createOscillator();
@@ -110,7 +180,7 @@ export class SoundManager {
   }
 
   public playNagadaRoll(volume: number = 0.2) {
-    if (this.isMuted || !this.ctx) return;
+    if (this.isMutedFlag || !this.ctx) return;
     const now = this.ctx.currentTime;
 
     // High pitched kettle drum strike
@@ -135,7 +205,7 @@ export class SoundManager {
    * Sound FX
    */
   public playArrowFire() {
-    if (this.isMuted || !this.ctx) return;
+    if (this.isMutedFlag || !this.ctx) return;
     const now = this.ctx.currentTime;
 
     // Bow release whoosh (filtered white noise + sine twang)
@@ -158,7 +228,7 @@ export class SoundManager {
   }
 
   public playArrowHit() {
-    if (this.isMuted || !this.ctx) return;
+    if (this.isMutedFlag || !this.ctx) return;
     const now = this.ctx.currentTime;
 
     // Crisp wood/flesh thud
@@ -180,7 +250,7 @@ export class SoundManager {
   }
 
   public playGatePass(isPositive: boolean) {
-    if (this.isMuted || !this.ctx) return;
+    if (this.isMutedFlag || !this.ctx) return;
     const now = this.ctx.currentTime;
 
     if (isPositive) {
@@ -224,7 +294,7 @@ export class SoundManager {
   }
 
   public playBarrierHit() {
-    if (this.isMuted || !this.ctx) return;
+    if (this.isMutedFlag || !this.ctx) return;
     const now = this.ctx.currentTime;
 
     const osc = this.ctx.createOscillator();
@@ -245,7 +315,7 @@ export class SoundManager {
   }
 
   public playBarrierBreak() {
-    if (this.isMuted || !this.ctx) return;
+    if (this.isMutedFlag || !this.ctx) return;
     const now = this.ctx.currentTime;
 
     // Heavy crash & rumble
@@ -267,7 +337,7 @@ export class SoundManager {
   }
 
   public playCannonFire() {
-    if (this.isMuted || !this.ctx) return;
+    if (this.isMutedFlag || !this.ctx) return;
     const now = this.ctx.currentTime;
 
     // Cannon explosion boom
@@ -286,10 +356,117 @@ export class SoundManager {
 
     osc.start(now);
     osc.stop(now + 0.7);
+
+    // Noise crack + rumble tail on top of the sub drop.
+    this.playNoiseBurst(0.5, 900, 0.5);
+  }
+
+  /** Deep ground thud + rumble when a cannonball lands. */
+  public playCannonImpact() {
+    if (this.isMutedFlag || !this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(70, now);
+    osc.frequency.exponentialRampToValueAtTime(28, now + 0.4);
+
+    gain.gain.setValueAtTime(0.55, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.4);
+
+    this.playNoiseBurst(0.35, 300, 0.35);
+  }
+
+  /**
+   * Gate chime that grows with the multiplier: more notes and a higher
+   * top note for x3 than for x2, so the big gate sounds bigger.
+   */
+  public playGateChime(multiplier: number = 2) {
+    if (this.isMutedFlag || !this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    // Bhoopali ascent (Sa Re Ga Pa Dha Sa): x2 plays 4 notes, x3 plays 6.
+    const scale = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5];
+    const noteCount = Math.min(scale.length, 2 + multiplier);
+    for (let i = 0; i < noteCount; i++) {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(scale[i], now + i * 0.055);
+
+      gain.gain.setValueAtTime(0.0001, now + i * 0.055);
+      gain.gain.linearRampToValueAtTime(0.22, now + i * 0.055 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.055 + 0.35);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(now + i * 0.055);
+      osc.stop(now + i * 0.055 + 0.35);
+    }
+  }
+
+  /**
+   * Combo blip whose pitch rises with the combo tier (x2 < x3 < x5),
+   * so a climbing streak is audible as well as visible.
+   */
+  public playComboUp(tier: number) {
+    if (this.isMutedFlag || !this.ctx) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    const base = 660 * (1 + 0.14 * (tier - 1));
+    [base, base * 1.5].forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.06);
+
+      gain.gain.setValueAtTime(0.2, now + idx * 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.06 + 0.16);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now + idx * 0.06);
+      osc.stop(now + idx * 0.06 + 0.16);
+    });
+  }
+
+  /** Bright shimmer for a near-miss graze bonus. */
+  public playGraze() {
+    if (this.isMutedFlag || !this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1320, now);
+    osc.frequency.exponentialRampToValueAtTime(1760, now + 0.1);
+
+    gain.gain.setValueAtTime(0.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.12);
   }
 
   public playBossRoar() {
-    if (this.isMuted || !this.ctx) return;
+    if (this.isMutedFlag || !this.ctx) return;
     const now = this.ctx.currentTime;
 
     const osc = this.ctx.createOscillator();
@@ -311,7 +488,7 @@ export class SoundManager {
   }
 
   public playBossSlam() {
-    if (this.isMuted || !this.ctx) return;
+    if (this.isMutedFlag || !this.ctx) return;
     const now = this.ctx.currentTime;
 
     const osc = this.ctx.createOscillator();
@@ -331,51 +508,90 @@ export class SoundManager {
     osc.stop(now + 0.6);
   }
 
+  /** Kept for existing callers — plays the full win stinger. */
   public playVictory() {
-    if (this.isMuted || !this.ctx) return;
+    this.playWinStinger();
+  }
+
+  /** Distinct win stinger: rising royal fanfare + dhol hits + final chord. */
+  public playWinStinger() {
+    if (this.isMutedFlag || !this.ctx) return;
     const now = this.ctx.currentTime;
 
-    // Grand royal fanfare
-    const notes = [440, 554.37, 659.25, 880, 1108.73];
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5];
     notes.forEach((freq, idx) => {
       const osc = this.ctx!.createOscillator();
       const gain = this.ctx!.createGain();
 
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, now + idx * 0.12);
+      osc.frequency.setValueAtTime(freq, now + idx * 0.11);
 
-      gain.gain.setValueAtTime(0.25, now + idx * 0.12);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.12 + 0.6);
+      gain.gain.setValueAtTime(0.25, now + idx * 0.11);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.11 + 0.6);
 
       osc.connect(gain);
       gain.connect(this.ctx!.destination);
 
-      osc.start(now + idx * 0.12);
-      osc.stop(now + idx * 0.12 + 0.6);
+      osc.start(now + idx * 0.11);
+      osc.stop(now + idx * 0.11 + 0.6);
+    });
+
+    // Dhol accents under the fanfare + a resolving major chord.
+    this.playDholBass(0.4);
+    [523.25, 659.25, 783.99].forEach((freq) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + 0.6);
+      gain.gain.setValueAtTime(0.18, now + 0.6);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+      osc.connect(gain);
+      gain.connect(this.ctx!.destination);
+      osc.start(now + 0.6);
+      osc.stop(now + 1.4);
     });
   }
 
+  /** Kept for existing callers — plays the full lose stinger. */
   public playDefeat() {
-    if (this.isMuted || !this.ctx) return;
+    this.playLoseStinger();
+  }
+
+  /** Distinct lose stinger: slow descending minor line over a low drone. */
+  public playLoseStinger() {
+    if (this.isMutedFlag || !this.ctx) return;
     const now = this.ctx.currentTime;
 
-    const notes = [330, 311.13, 293.66, 220];
+    const notes = [392, 369.99, 349.23, 311.13, 261.63];
     notes.forEach((freq, idx) => {
       const osc = this.ctx!.createOscillator();
       const gain = this.ctx!.createGain();
 
       osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(freq, now + idx * 0.2);
+      osc.frequency.setValueAtTime(freq, now + idx * 0.22);
 
-      gain.gain.setValueAtTime(0.25, now + idx * 0.2);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.2 + 0.5);
+      gain.gain.setValueAtTime(0.2, now + idx * 0.22);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.22 + 0.55);
 
       osc.connect(gain);
       gain.connect(this.ctx!.destination);
 
-      osc.start(now + idx * 0.2);
-      osc.stop(now + idx * 0.2 + 0.5);
+      osc.start(now + idx * 0.22);
+      osc.stop(now + idx * 0.22 + 0.55);
     });
+
+    // Low drone underneath.
+    const drone = this.ctx.createOscillator();
+    const droneGain = this.ctx.createGain();
+    drone.type = 'sine';
+    drone.frequency.setValueAtTime(65, now);
+    droneGain.gain.setValueAtTime(0.0001, now);
+    droneGain.gain.linearRampToValueAtTime(0.16, now + 0.3);
+    droneGain.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+    drone.connect(droneGain);
+    droneGain.connect(this.ctx.destination);
+    drone.start(now);
+    drone.stop(now + 1.4);
   }
 
   public dispose() {
@@ -387,5 +603,6 @@ export class SoundManager {
       this.ctx.close();
       this.ctx = null;
     }
+    this.noiseBuffer = null;
   }
 }

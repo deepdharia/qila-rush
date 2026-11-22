@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CONSTANTS } from '../utils/Constants';
+import { getWoodTexture } from '../utils/CanvasTextures';
 import { SoundManager } from '../audio/SoundManager';
 import { ParticleSystem } from './ParticleSystem';
 
@@ -18,6 +19,7 @@ export interface BarrierData {
   maxHealth: number;
   reward: BarrierReward;
   destroyed: boolean;
+  rammed: boolean; // F3 fix: ram casualties fire once per barrier, not per frame
   hpCanvas: HTMLCanvasElement;
   hpTexture: THREE.CanvasTexture;
   hpMesh: THREE.Mesh;
@@ -46,12 +48,16 @@ export class BarrierManager {
     const group = new THREE.Group();
     group.position.set(0, 0, z);
 
-    // Heavy Timber & Iron Barricade Frame
+    // Heavy Timber & Iron Barricade Frame — canvas-generated wood planks
+    // (grain, knots, plank gaps, nail heads) instead of flat brown.
     const timberGeo = new THREE.BoxGeometry(width, 3.2, 1.2);
+    const woodTex = getWoodTexture().clone();
+    woodTex.needsUpdate = true;
+    woodTex.repeat.set(3, 1);
     const timberMat = new THREE.MeshStandardMaterial({
-      color: 0x5c2b14,
-      roughness: 0.8,
-      metalness: 0.2
+      map: woodTex,
+      roughness: 0.85,
+      metalness: 0.15
     });
     const timberMesh = new THREE.Mesh(timberGeo, timberMat);
     timberMesh.position.y = 1.6;
@@ -105,6 +111,7 @@ export class BarrierManager {
       maxHealth: health,
       reward,
       destroyed: false,
+      rammed: false,
       hpCanvas,
       hpTexture,
       hpMesh,
@@ -207,11 +214,12 @@ export class BarrierManager {
   ) {
     for (let i = 0; i < this.barriers.length; i++) {
       const b = this.barriers[i];
-      if (b.destroyed) continue;
+      if (b.destroyed || b.rammed) continue;
 
       const dz = playerZ - b.z;
       if (dz >= -0.5 && dz <= 1.2) {
-        // Ramming an unbroken gate causes massive casualties!
+        // Ramming an unbroken gate causes casualties — once per barrier.
+        b.rammed = true;
         onRamCasualties(5);
         this.sounds.playBarrierHit();
         this.particles.spawnWoodSplinters(b.group.position, 15);
@@ -239,10 +247,40 @@ export class BarrierManager {
       const b = this.barriers[i];
       b.health = b.maxHealth;
       b.destroyed = false;
+      b.rammed = false;
       b.group.visible = true;
       this.renderBadgeTexture(b.hpCanvas, b.health, b.maxHealth, b.reward.label);
       b.hpTexture.needsUpdate = true;
     }
+  }
+
+  /**
+   * Phase 2 (Doomfall endless): shift every barrier along the road (world
+   * wrap). Stored z and the scene group move together.
+   */
+  public shiftZ(delta: number) {
+    for (const b of this.barriers) {
+      b.z += delta;
+      b.group.position.z += delta;
+    }
+  }
+
+  /**
+   * Phase 2 (Doomfall endless): drop barriers the player has already
+   * passed (destroyed or rammed — an unbroken barrier is always rammed on
+   * the pass), so a long endless run does not accumulate meshes forever.
+   */
+  public pruneBefore(z: number) {
+    const kept: BarrierData[] = [];
+    for (const b of this.barriers) {
+      if (b.z < z) {
+        this.scene.remove(b.group);
+        b.hpTexture.dispose();
+      } else {
+        kept.push(b);
+      }
+    }
+    this.barriers = kept;
   }
 
   public dispose() {

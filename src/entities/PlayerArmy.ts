@@ -22,6 +22,16 @@ export class PlayerArmy {
   // Upgrades & Buffs
   public isFlamingArrows: boolean = false;
   public isDoubleShot: boolean = false;
+  // Phase 5 (Doomfall war-gear): equipped arrow type. Piercing arrows
+  // punch through shield-bearer front guard; volley arrows loose 2 extra
+  // arrows per volley across a wider spread. Set by Game at run start
+  // from the equipped loadout; cleared by reset() with the other buffs.
+  public isPiercingArrows: boolean = false;
+  public volleyExtraArrows: number = 0;
+  // Phase 1 (Doomfall draft): chance a volley fires twice, from the
+  // 'double_volley' war bonus. Stacks add +25% each (capped at 100%).
+  // Distinct from isDoubleShot (barrier reward: always double).
+  public doubleVolleyChance: number = 0;
   private fireCooldown: number = 0;
 
   // Animation time
@@ -178,6 +188,11 @@ export class PlayerArmy {
 
         // Front soldiers fire arrows
         const shootersCount = Math.min(12, Math.max(2, Math.ceil(this.count * 0.35)));
+        // Double volley: always with the barrier reward, otherwise a
+        // per-volley chance from the war-bonus draft (rolled once per volley,
+        // not per arrow, so the whole volley doubles together).
+        const doubleThisVolley =
+          this.isDoubleShot || Math.random() < this.doubleVolleyChance;
         for (let i = 0; i < shootersCount; i++) {
           const soldier = this.soldiers[i];
           if (!soldier || !soldier.root.visible) continue;
@@ -191,13 +206,28 @@ export class PlayerArmy {
           aimPos.y += 0.5 + Math.random() * 0.5;
           aimPos.z += (Math.random() - 0.5) * 1.0;
 
-          this.projectiles.spawnArrow(startWorldPos, aimPos, this.isFlamingArrows);
+          this.projectiles.spawnArrow(startWorldPos, aimPos, this.isFlamingArrows, this.isPiercingArrows);
 
-          if (this.isDoubleShot) {
+          if (doubleThisVolley) {
             const spreadAim = aimPos.clone();
             spreadAim.x += (Math.random() - 0.5) * 2.0;
-            this.projectiles.spawnArrow(startWorldPos, spreadAim, this.isFlamingArrows);
+            this.projectiles.spawnArrow(startWorldPos, spreadAim, this.isFlamingArrows, this.isPiercingArrows);
           }
+        }
+
+        // Phase 5 (Doomfall war-gear): volley arrows loose extra arrows
+        // across a WIDER spread than the double-volley copy — they fan out
+        // over the enemy line instead of doubling the same aim point.
+        for (let k = 0; k < this.volleyExtraArrows; k++) {
+          const soldier = this.soldiers[k % Math.max(1, shootersCount)];
+          if (!soldier || !soldier.root.visible) continue;
+          const startWorldPos = new THREE.Vector3();
+          soldier.root.getWorldPosition(startWorldPos);
+          const wideAim = bestTarget.position.clone();
+          wideAim.x += (Math.random() - 0.5) * 7.0;
+          wideAim.y += 0.5 + Math.random() * 0.5;
+          wideAim.z += (Math.random() - 0.5) * 1.0;
+          this.projectiles.spawnArrow(startWorldPos, wideAim, this.isFlamingArrows, this.isPiercingArrows);
         }
 
         this.sounds.playArrowFire();
@@ -222,6 +252,9 @@ export class PlayerArmy {
     this.isMoving = true;
     this.isFlamingArrows = false;
     this.isDoubleShot = false;
+    this.doubleVolleyChance = 0;
+    this.isPiercingArrows = false;
+    this.volleyExtraArrows = 0;
     this.fireCooldown = 0;
     this.setSquadCount(CONSTANTS.INITIAL_SOLDIER_COUNT);
     this.group.position.set(0, 0, startZ);
