@@ -5,6 +5,12 @@ export class SoundManager {
   private bgmTempo: number = 135; // BPM
   private isBossEncounter: boolean = false;
   private noiseBuffer: AudioBuffer | null = null;
+  // Phase 2: optional real battle music. If a track is dropped into
+  // public/assets/music/battle-loop.mp3 (see that folder's README), it
+  // plays on loop and the procedural dhol layer steps aside; if the file
+  // is missing or playback is blocked, the procedural loop keeps playing.
+  private musicEl: HTMLAudioElement | null = null;
+  private externalMusicActive: boolean = false;
 
   constructor() {
     // AudioContext will be initialized upon user gesture
@@ -30,6 +36,36 @@ export class SoundManager {
     if (!this.bgmInterval) {
       this.startBattleRhythm();
     }
+    this.tryExternalMusic();
+  }
+
+  /**
+   * Try to play a real battle track on loop. Missing file (404) or a
+   * blocked autoplay leaves the procedural drums running untouched.
+   * On success the drums go quiet (boss war-drone still fires) and the
+   * CC-BY credit line on the menu appears.
+   */
+  private tryExternalMusic() {
+    if (this.musicEl) return;
+    const el = new Audio('assets/music/battle-loop.mp3');
+    el.loop = true;
+    el.volume = 0.35;
+    el.preload = 'auto';
+    el.muted = this.isMutedFlag;
+    this.musicEl = el;
+    el.addEventListener('error', () => {
+      this.musicEl = null;
+      this.externalMusicActive = false;
+    });
+    el.addEventListener('canplaythrough', () => {
+      void el.play().then(() => {
+        this.externalMusicActive = true;
+        document.getElementById('music-credit')?.style.removeProperty('display');
+      }).catch(() => {
+        // Autoplay blocked: stay on the procedural loop.
+        this.externalMusicActive = false;
+      });
+    });
   }
 
   /** True while the user has muted audio — haptics respect this too. */
@@ -39,6 +75,7 @@ export class SoundManager {
 
   public toggleMute(): boolean {
     this.isMutedFlag = !this.isMutedFlag;
+    if (this.musicEl) this.musicEl.muted = this.isMutedFlag;
     if (this.isMutedFlag && this.ctx) {
       // suspend or mute
     } else if (!this.isMutedFlag && this.ctx && this.ctx.state === 'suspended') {
@@ -68,13 +105,17 @@ export class SoundManager {
 
       const step = beat % 8;
       // Dhol pattern: 0: Dha (Deep Bass + Rim), 2: Dhin (Deep Bass), 4: Dha, 5: Ta (Sharp rim), 6: Dhin
-      if (step === 0 || step === 4) {
-        this.playDholBass(0.35);
-        this.playDholRim(0.2);
-      } else if (step === 2 || step === 6) {
-        this.playDholBass(0.25);
-      } else if (step === 5 || (this.isBossEncounter && (step === 1 || step === 7))) {
-        this.playNagadaRoll(0.18);
+      // Silent while a real battle track is playing (the interval keeps
+      // running so the boss war-drone below still fires).
+      if (!this.externalMusicActive) {
+        if (step === 0 || step === 4) {
+          this.playDholBass(0.35);
+          this.playDholRim(0.2);
+        } else if (step === 2 || step === 6) {
+          this.playDholBass(0.25);
+        } else if (step === 5 || (this.isBossEncounter && (step === 1 || step === 7))) {
+          this.playNagadaRoll(0.18);
+        }
       }
 
       // Boss-fight layer: a low war-drone swell on every bar's downbeat,
@@ -598,6 +639,11 @@ export class SoundManager {
     if (this.bgmInterval) {
       clearInterval(this.bgmInterval);
       this.bgmInterval = null;
+    }
+    if (this.musicEl) {
+      this.musicEl.pause();
+      this.musicEl = null;
+      this.externalMusicActive = false;
     }
     if (this.ctx) {
       this.ctx.close();
