@@ -6,8 +6,17 @@
   <title>QILA RUSH - Fort War Crowd Shooter</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800;900&family=Rajdhani:wght@600;700&family=Yatra+One&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800;900&family=Rajdhani:wght@600;700;900&family=Yatra+One&display=swap" rel="stylesheet">
   <style>
+    /* Phase 1: safe-area insets (notch / home-indicator). 0px fallback
+       where env() is unsupported. */
+    :root {
+      --sat: env(safe-area-inset-top, 0px);
+      --sab: env(safe-area-inset-bottom, 0px);
+      --sal: env(safe-area-inset-left, 0px);
+      --sar: env(safe-area-inset-right, 0px);
+    }
+
     * {
       box-sizing: border-box;
       margin: 0;
@@ -21,6 +30,10 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
+      /* Phase 1: no pull-to-refresh / scroll chaining out of the game,
+         no iOS long-press callout on the game UI. */
+      overscroll-behavior: none;
+      -webkit-touch-callout: none;
       background-color: #120a05;
       font-family: 'Rajdhani', sans-serif;
       color: #fff;
@@ -71,7 +84,8 @@
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      padding: 16px 20px;
+      /* Phase 1: top padding clears the notch / status bar. */
+      padding: calc(var(--sat) + 8px) 20px 16px;
       gap: 12px;
       background: linear-gradient(180deg, rgba(14, 8, 4, 0.85) 0%, rgba(14, 8, 4, 0) 100%);
       pointer-events: auto;
@@ -133,16 +147,35 @@
       text-shadow: 0 1px 2px rgba(0,0,0,0.9);
     }
 
+    /* Phase 1: 44px Rajdhani 900 on a saffron chip. NOTE: the Google Fonts
+       link in <head> currently loads Rajdhani 600;700 only — a true 900
+       needs wght@900 added to that link (outside the <style> block). */
     .army-count {
       display: inline-block;
-      font-family: 'Cinzel', serif;
-      font-size: 26px;
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 44px;
       font-weight: 900;
       font-variant-numeric: tabular-nums;
-      color: #ffffff;
-      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+      color: #1a0a03;
+      background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 55%, #d97706 100%);
+      border-radius: 12px;
+      padding: 2px 12px;
+      text-shadow: none;
       line-height: 1;
       animation: count-glow 1.6s ease-in-out infinite;
+    }
+
+    /* Phase 1: scale-pop, toggled by UIManager.updateArmyCount on every
+       change. Listed after count-glow so it wins the transform while it
+       runs, then the glow pulse resumes. */
+    @keyframes army-pop {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.25); }
+      100% { transform: scale(1); }
+    }
+
+    .army-count.pop {
+      animation: count-glow 1.6s ease-in-out infinite, army-pop 0.35s ease-out;
     }
 
     @keyframes count-glow {
@@ -160,15 +193,16 @@
       margin: 0 10px;
     }
 
+    /* Phase 1: 2x thicker than the old 16px track. */
     .progress-track {
       position: relative;
       width: 100%;
-      height: 16px;
+      height: 32px;
       background: rgba(30, 18, 10, 0.85);
       border: 2px solid #b45309;
       outline: 1px solid rgba(253, 224, 71, 0.55);
       outline-offset: 1px;
-      border-radius: 12px;
+      border-radius: 16px;
       overflow: hidden;
       box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.8);
     }
@@ -179,7 +213,7 @@
       height: 100%;
       width: 0%;
       background: linear-gradient(90deg, #f59e0b, #ef4444, #fbbf24);
-      border-radius: 10px;
+      border-radius: 14px;
       transition: width 0.2s ease-out;
       box-shadow: 0 0 10px rgba(245, 158, 11, 0.8);
     }
@@ -224,9 +258,10 @@
       gap: 8px;
     }
 
+    /* Phase 1: 42px -> 48px tap target, look unchanged. */
     .icon-btn {
-      width: 42px;
-      height: 42px;
+      width: 48px;
+      height: 48px;
       border-radius: 50%;
       background: linear-gradient(135deg, rgba(68, 36, 17, 0.9), rgba(28, 14, 6, 0.9));
       border: 2px solid #d97706;
@@ -251,7 +286,8 @@
     #boss-hud {
       display: none;
       position: absolute;
-      top: 104px;
+      /* Phase 1: clears the notch / status bar like the top HUD. */
+      top: calc(var(--sat) + 108px);
       left: 50%;
       transform: translateX(-50%);
       width: 90%;
@@ -273,14 +309,30 @@
       50% { box-shadow: 0 0 32px rgba(220, 38, 38, 0.85), 0 0 12px rgba(253, 224, 71, 0.5); }
     }
 
+    /* Phase 1: boss name 2.2x (16px -> 35px). Wraps to two lines on narrow
+       phones rather than shrinking — the size is the point. */
     .boss-name {
       font-family: 'Cinzel', serif;
-      font-size: 16px;
+      font-size: 35px;
       font-weight: 900;
       color: #fca5a5;
       letter-spacing: 2px;
       text-transform: uppercase;
       margin-bottom: 6px;
+      line-height: 1.15;
+      text-shadow: 0 2px 6px rgba(0,0,0,0.9);
+    }
+
+    /* Phase 1: boss HP number — big and readable at a glance (bar-only
+       before). 28px Rajdhani 900, gold, under the health bar. */
+    .boss-hp-text {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 28px;
+      font-weight: 900;
+      color: #fde047;
+      letter-spacing: 1px;
+      line-height: 1.1;
+      margin-top: 4px;
       text-shadow: 0 2px 6px rgba(0,0,0,0.9);
     }
 
@@ -312,7 +364,10 @@
       font-size: 28px;
       font-weight: 900;
       letter-spacing: 1px;
-      color: #fef08a;
+      /* Phase 1: gate "+N" text is saffron, bold (900) — see also
+         UIManager.showNotification's saffron default. NOTE: Game.ts passes
+         an explicit colour for the gate texts, which overrides this. */
+      color: #f59e0b;
       text-shadow: 0 0 15px rgba(234, 179, 8, 0.9), 0 3px 6px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 1);
       opacity: 0;
       pointer-events: none;
@@ -332,7 +387,8 @@
       display: flex;
       justify-content: space-between;
       align-items: flex-end;
-      padding: 16px 20px 24px;
+      /* Phase 1: bottom padding clears the home indicator. */
+      padding: 16px 20px calc(var(--sab) + 16px);
       pointer-events: none;
     }
 
@@ -604,6 +660,8 @@
 
     .primary-btn {
       width: 100%;
+      /* Phase 1: primary actions are at least 56px tall. */
+      min-height: 56px;
       padding: 14px 24px;
       border-radius: 30px;
       font-family: 'Cinzel', serif;
@@ -1133,6 +1191,102 @@
       color: #e5e7eb;
       line-height: 1.3;
     }
+
+    /* ---------- Phase 1: first responsive layer + HUD text floor ---------- */
+    @media (max-width: 480px), (max-height: 700px) {
+      /* Modals become bottom sheets on phones / short screens. */
+      .modal-screen {
+        justify-content: flex-end;
+        padding: 0;
+      }
+
+      .modal-screen .modal-card {
+        width: 100%;
+        max-width: 100%;
+        max-height: 86vh;
+        overflow-y: auto;
+        border-radius: 20px 20px 0 0;
+        padding: 24px 20px calc(var(--sab) + 20px);
+        margin: 0;
+      }
+
+      .modal-screen .modal-card.wide {
+        max-width: 100%;
+      }
+
+      /* Bottom gold tab would sit below the viewport edge in sheet mode;
+         the top tab stays as a grab-handle hint. */
+      .modal-screen .modal-card::after {
+        display: none;
+      }
+
+      /* Level map becomes a vertical scrolling list of >=64px cards
+         (the card itself scrolls: max-height 86vh + overflow-y above). */
+      .level-grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+
+      .level-btn {
+        min-height: 64px;
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 12px;
+        padding: 10px 16px;
+        text-align: left;
+      }
+
+      .level-btn .level-num {
+        font-size: 20px;
+        min-width: 44px;
+        text-align: center;
+      }
+
+      .level-btn .level-stars {
+        font-size: 13px;
+      }
+
+      .level-btn .level-name {
+        flex: 1;
+        min-width: 0;
+        font-size: 13px;
+        text-align: left;
+      }
+    }
+
+    @media (max-width: 480px) {
+      /* HUD text floor: no HUD text smaller than 13px on phones.
+         (buff-pill 13px, drag-hint 14px, score-chip 15px, combo 13px
+         already meet it; these three did not.) */
+      .badge-label,
+      .progress-label,
+      .ability-title {
+        font-size: 13px;
+      }
+
+      .hud-top,
+      .hud-bottom {
+        padding-left: 12px;
+        padding-right: 12px;
+      }
+
+      .progress-container {
+        min-width: 0;
+      }
+
+      /* The 44px army count makes the top bar ~93px tall, so on phones the
+         score row and boss HUD sit below it instead of at their desktop
+         offsets (66px / sat+108px), where they would overlap the badge.
+         Desktop keeps the spec values. */
+      #hud-score {
+        top: calc(var(--sat) + 96px);
+      }
+
+      #boss-hud {
+        top: calc(var(--sat) + 132px);
+      }
+    }
   </style>
 </head>
 <body>
@@ -1142,6 +1296,13 @@
     <div id="ui-layer">
       <!-- Golden-hour vignette over the 3D view (static, pointer-transparent) -->
       <div class="vignette"></div>
+      <!-- Phase 0: ?perf=1 live overlay. Hidden unless the URL has ?perf=1.
+           Inline styles only (deliberate: the <style> block is Phase 1's).
+           COPY STATS pastes live perf + local telemetry as JSON text. -->
+      <div id="perf-overlay" style="display:none; position:fixed; top:8px; left:8px; z-index:9999; background:rgba(0,0,0,0.78); color:#fff; font:11px/1.5 monospace; padding:8px 10px; border-radius:8px; max-width:52vw; white-space:pre-wrap; pointer-events:auto;">
+        <div id="perf-overlay-text">PERF — starting…</div>
+        <button id="perf-copy-btn" style="margin-top:6px; font:11px monospace; padding:4px 8px; border-radius:4px; border:0; background:#f59e0b; color:#111; font-weight:700;">COPY STATS</button>
+      </div>
 
       <!-- Top HUD -->
       <div class="hud-top">
@@ -1178,6 +1339,8 @@
         <div class="boss-health-track">
           <div class="boss-health-fill" id="ui-boss-health-fill"></div>
         </div>
+        <!-- Phase 1: boss HP as a big readable number (was bar-only). -->
+        <div class="boss-hp-text" id="ui-boss-hp-text"></div>
       </div>
 
       <!-- Phase 3: live score / combo / run coins -->

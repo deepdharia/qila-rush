@@ -207,12 +207,14 @@ export function getSkyTexture(): THREE.CanvasTexture {
   const [canvas, ctx] = makeCanvas(16, 512);
   if (!ctx) return toTexture(canvas);
   const grad = ctx.createLinearGradient(0, 0, 0, 512);
-  grad.addColorStop(0.0, '#1d3a6e');
-  grad.addColorStop(0.38, '#5f8fc9');
+  // Phase 1: sky gradient deepened to match CONSTANTS.COLORS
+  // (SKY_TOP #1E40AF -> SKY_HORIZON #FDBA74).
+  grad.addColorStop(0.0, '#1e40af');
+  grad.addColorStop(0.38, '#4a7dd0');
   grad.addColorStop(0.58, '#e8a75e');
   grad.addColorStop(0.72, '#ffc46b');
   grad.addColorStop(0.86, '#f2b25c');
-  grad.addColorStop(1.0, '#d99a55');
+  grad.addColorStop(1.0, '#fdba74');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 16, 512);
   skyTex = toTexture(canvas);

@@ -57,6 +57,8 @@ import {
   QUALITY_SETTINGS,
   type QualityLevel
 } from '../systems/AutoQuality';
+// Phase 0 (master plan): local-only telemetry — no network, no PII.
+import { Telemetry } from '../systems/Telemetry';
 // Phase 5 (Doomfall war-gear + fortify): gear catalogue, fortify pricing,
 // skin colours.
 import {
@@ -70,6 +72,31 @@ import {
   type SkinId
 } from '../systems/WarGear';
 import type { FortifySlotRow, GearRow } from '../ui/UIManager';
+
+// Phase 1 (master plan): a phone is a coarse pointer (touch-first device)
+// or a narrow viewport. matchMedia('(pointer: coarse)') catches touch
+// phones/tablets even at desktop-like widths; the innerWidth < 768 fallback
+// catches small windows and devices that report a fine pointer. Same test
+// in FortressEnvironment / ParticleSystem (kept local per file so no shared
+// helper has to live in a file this phase doesn't own).
+const IS_PHONE =
+  window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 768;
+
+// Phase 1 (master plan): per-frame allocation sweep — module-level scratch
+// reused by update() / handleProjectileCollisions(). Every use below reads
+// the scratch synchronously within the frame before the next use overwrites
+// it; nothing here is stored or awaited.
+const _playerPos = new THREE.Vector3();
+const _bossTargetPos = new THREE.Vector3();
+const _bossTarget: { position: THREE.Vector3; health: number } = {
+  position: _bossTargetPos,
+  health: 0
+};
+const _potentialTargets: { position: THREE.Vector3; health: number }[] = [];
+const _targetPos = new THREE.Vector3();
+const _dmgPos = new THREE.Vector3();
+const _textPos = new THREE.Vector3();
+const _activeEnemies: EnemyUnit[] = [];
 
 export type GameState = 'menu' | 'playing' | 'paused' | 'draft' | 'victory' | 'defeat';
 
@@ -136,6 +163,19 @@ export class Game {
   private cannonCooldownTimer: number = 0;
   private isHighQuality: boolean = true;
   private autoQuality: AutoQualityScaler;
+  // Phase 0: local-only telemetry (see systems/Telemetry.ts) + the ?perf=1
+  // live overlay. Neither changes gameplay; both feed the Phase 4 audit.
+  private telemetry = new Telemetry();
+  private runStartMs: number = 0;
+  private perfEnabled: boolean = false;
+  private perfOverlay: HTMLElement | null = null;
+  private perfOverlayText: HTMLElement | null = null;
+  private perfCopyBtn: HTMLElement | null = null;
+  private frameTimes: number[] = [];
+  private perfTimer: number = 0;
+  private perfFps: number = 0;
+  private perfFrameAvgMs: number = 0;
+  private perfFrameP95Ms: number = 0;
   private bossEncounterTriggered: boolean = false;
   private enemyWavesSpawned: { [waveId: string]: boolean } = {};
 
@@ -293,19 +333,24 @@ export class Game {
     this.canvas = document.getElementById('webgl-canvas') as HTMLCanvasElement;
 
     // WebGL Renderer Setup
+    // Phase 1 (master plan): no MSAA on phones, DPR capped at 1.5 on
+    // phones (2 on desktop).
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
-      antialias: true,
+      antialias: !IS_PHONE,
       powerPreference: 'high-performance'
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_PHONE ? 1.5 : 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     // Phase 4: auto quality scaler. Starts at level 0 (high), matching the
     // renderer setup above; steps down/up only from real gameplay frame time.
+    // Phase 1 (master plan): phones start at level 1 (medium) instead —
+    // startAt() does not set manualOverride, so auto-scaling keeps working.
     this.autoQuality = new AutoQualityScaler((level) => this.applyQualityLevel(level));
+    if (IS_PHONE) this.autoQuality.startAt(1);
 
     this.scene = new THREE.Scene();
 
@@ -352,6 +397,28 @@ export class Game {
     this.setupUIListeners();
     this.onWindowResize();
     this.refreshMenu();
+
+    // Phase 0: telemetry — one session per page load; ends on hide/unload.
+    this.telemetry.sessionStart();
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.telemetry.sessionEnd();
+      else this.telemetry.sessionResume();
+    });
+    window.addEventListener('pagehide', () => this.telemetry.sessionEnd());
+
+    // Phase 1 (master plan): auto-pause when the tab is hidden mid-run.
+    // A SEPARATE listener from the Phase 0 telemetry one above — this one
+    // only pauses, reusing the existing pause path (pauseGame guards on
+    // state === 'playing', so menu/pause/victory/defeat are untouched).
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && this.state === 'playing') this.pauseGame();
+    });
+
+    // Phase 1 (master plan): no long-press context menu over the canvas.
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // Phase 0: ?perf=1 live overlay (draw calls, FPS/p95, heap, quality).
+    this.initPerfOverlay();
 
     // Lives regen ticks while the main menu is open (timestamp-based,
     // survives reload). Guarded to the start screen so it never yanks the
@@ -1019,6 +1086,14 @@ export class Game {
         if (this.state === 'playing') this.uiManager.showNotification('🏹 YOUR ARMY FIRES ON ITS OWN — JUST STEER!', '#fef08a');
       }, 14000);
     }
+    // Phase 0: telemetry — run attempt (army after upgrades + boosters).
+    this.runStartMs = performance.now();
+    this.telemetry.attempt({
+      levelId: cfg.id,
+      isDaily,
+      isEndless: false,
+      startArmy: this.playerArmy.count
+    });
     return true;
   }
 
@@ -1060,6 +1135,9 @@ export class Game {
     this.state = 'playing';
     this.selectedBoosters = new Set();
     this.uiManager.showNotification('♾️ ENDLESS SIEGE — SURVIVE AS MANY WAVES AS YOU CAN!', '#f59e0b');
+    // Phase 0: telemetry — siege attempt (levelId -1 = endless, not a level).
+    this.runStartMs = performance.now();
+    this.telemetry.attempt({ levelId: -1, isEndless: true, startArmy: this.playerArmy.count });
     return true;
   }
 
@@ -1777,7 +1855,10 @@ export class Game {
     }
 
     // Gather potential targets for army auto-aiming
-    const potentialTargets: { position: THREE.Vector3; health: number }[] = [];
+    // Phase 1 (master plan): reused list + reused boss target — PlayerArmy
+    // only reads these synchronously inside update(), never stores them.
+    const potentialTargets = _potentialTargets;
+    potentialTargets.length = 0;
 
     // 1. Barriers
     const activeBarriers = this.barrierManager.getActiveTargets();
@@ -1789,10 +1870,10 @@ export class Game {
 
     // 3. Boss
     if (this.boss.active && !this.boss.isDefeated) {
-      potentialTargets.push({
-        position: this.boss.position.clone().add(new THREE.Vector3(0, 1.8, 0)),
-        health: this.boss.health
-      });
+      _bossTargetPos.copy(this.boss.position);
+      _bossTargetPos.y += 1.8;
+      _bossTarget.health = this.boss.health;
+      potentialTargets.push(_bossTarget);
     }
 
     // Update Player Squad
@@ -1809,7 +1890,11 @@ export class Game {
         this.playerArmy.group.position.z = holdZ;
       }
     }
-    const playerPos = this.playerArmy.getFrontPosition();
+    // Phase 1 (master plan): reused scratch instead of a fresh Vector3
+    // every frame. All uses below (spawnWaveTriggers, updateEndless,
+    // enemy/boss updates, gate/barrier checks, camera, HUD) read .x/.z
+    // synchronously within this frame.
+    const playerPos = _playerPos.set(this.playerArmy.currentX, 0, this.playerArmy.currentZ);
     this.peakArmy = Math.max(this.peakArmy, this.playerArmy.count);
 
     // Spawn Enemy Waves based on progression
@@ -1858,7 +1943,7 @@ export class Game {
     this.gateManager.checkPlayerCollision(playerPos.x, playerPos.z, (op, val) => {
       if (op === 'add') {
         this.playerArmy.addWarriors(val);
-        this.uiManager.showNotification(`+${val} WARRIORS!`, '#38bdf8');
+        this.uiManager.showNotification(`+${val} WARRIORS!`, '#f59e0b');
       } else if (op === 'mult') {
         this.playerArmy.multiplyWarriors(val);
         this.uiManager.showNotification(`×${val} ARMY MULTIPLIER!`, '#f59e0b');
@@ -1868,8 +1953,9 @@ export class Game {
           this.vibrate([30, 40, 50]);
         }
         this.soundManager.playGateChime(val);
+        _textPos.set(playerPos.x, 4.5, playerPos.z + 3);
         this.particles.spawnFloatingText(
-          new THREE.Vector3(playerPos.x, 4.5, playerPos.z + 3),
+          _textPos,
           `×${val}`,
           'combo'
         );
@@ -1958,7 +2044,14 @@ export class Game {
   private handleProjectileCollisions() {
     const activeProjectiles = this.projectiles.getActiveProjectiles();
     const activeBarriers = this.barrierManager.getActiveTargets();
-    const activeEnemies = this.enemyArmy.enemies.filter(e => e.active);
+    // Phase 1 (master plan): reused list instead of a fresh .filter()
+    // array every frame. Only iterated within this method.
+    const activeEnemies = _activeEnemies;
+    activeEnemies.length = 0;
+    for (let i = 0; i < this.enemyArmy.enemies.length; i++) {
+      const e = this.enemyArmy.enemies[i];
+      if (e.active) activeEnemies.push(e);
+    }
 
     for (let i = 0; i < activeProjectiles.length; i++) {
       const p = activeProjectiles[i];
@@ -1973,8 +2066,9 @@ export class Game {
 
         if (Math.abs(pPos.z - b.z) < 1.0 && Math.abs(pPos.x - b.x) < b.width / 2 + 0.5 && pPos.y < 3.4) {
           this.projectiles.deactivate(p);
+          _dmgPos.set(pPos.x, 2.2, b.z - 0.8);
           this.particles.spawnDamageNumber(
-            new THREE.Vector3(pPos.x, 2.2, b.z - 0.8),
+            _dmgPos,
             p.damage,
             'barrier'
           );
@@ -1991,7 +2085,9 @@ export class Game {
         const e = activeEnemies[j];
         if (!e.active) continue;
 
-        const dist = pPos.distanceTo(e.position.clone().add(new THREE.Vector3(0, 0.8, 0)));
+        _targetPos.copy(e.position);
+        _targetPos.y += 0.8;
+        const dist = pPos.distanceTo(_targetPos);
         if (dist < 1.1) {
           this.projectiles.deactivate(p);
           // Phase 4: damage kind rides into applyDamage — a shield-bearer's
@@ -2003,7 +2099,7 @@ export class Game {
             attackerX: this.playerArmy.currentX
           });
           this.particles.spawnDamageNumber(
-            e.position.clone().add(new THREE.Vector3(0, 1.6, 0)),
+            _dmgPos.copy(e.position).setY(e.position.y + 1.6),
             dealt,
             p.isFire ? 'fire' : 'hit'
           );
@@ -2025,7 +2121,7 @@ export class Game {
                     attackerX: this.playerArmy.currentX
                   });
                   this.particles.spawnDamageNumber(
-                    otherE.position.clone().add(new THREE.Vector3(0, 1.6, 0)),
+                    _dmgPos.copy(otherE.position).setY(otherE.position.y + 1.6),
                     splashDealt,
                     'fire'
                   );
@@ -2040,13 +2136,15 @@ export class Game {
 
       // 3. Check against Boss
       if (this.boss.active && !this.boss.isDefeated) {
-        const bossDist = pPos.distanceTo(this.boss.position.clone().add(new THREE.Vector3(0, 2.0, 0)));
+        _targetPos.copy(this.boss.position);
+        _targetPos.y += 2.0;
+        const bossDist = pPos.distanceTo(_targetPos);
         if (bossDist < 3.2) {
           this.projectiles.deactivate(p);
           const prevHealth = this.boss.health;
           const wasKilled = this.boss.takeDamage(p.damage);
           this.particles.spawnDamageNumber(
-            this.boss.position.clone().add(new THREE.Vector3(0, 4.2, 0)),
+            _dmgPos.copy(this.boss.position).setY(this.boss.position.y + 4.2),
             p.damage,
             'boss'
           );
@@ -2234,6 +2332,8 @@ export class Game {
   private pickDraftBonus(id: WarBonusId) {
     if (!this.draftOpen || this.state !== 'draft') return;
     if (!WAR_BONUSES.some((b) => b.id === id)) return;
+    // Phase 0: telemetry — which draft picks get taken.
+    this.telemetry.draft({ bonusId: id, levelId: this.currentLevel.id });
     const next = this.draftStacks(id) + 1;
     this.draftCounts.set(id, next);
     const def = warBonusDef(id);
@@ -2438,6 +2538,17 @@ export class Game {
       isDaily: this.isDailyRun
     };
 
+    // Phase 0: telemetry — real win data for the Phase 4 difficulty audit.
+    this.telemetry.win({
+      levelId: cfg.id,
+      saved,
+      kills,
+      stars,
+      seconds: this.runSeconds(),
+      isDaily: this.isDailyRun,
+      isEndless: this.isEndless
+    });
+
     this.uiManager.showVictory(saved, kills, {
       stars,
       score: this.score,
@@ -2533,6 +2644,18 @@ export class Game {
         breakdown,
         newBalance: this.save.coins
       });
+      // Phase 0: telemetry — boss HP left + progress at defeat.
+      this.telemetry.defeat({
+        levelId: this.currentLevel.id,
+        kind: 'level',
+        progressPct: Math.round(progressPct),
+        bossHpRemaining: this.currentLevel.boss ? Math.max(0, Math.round(this.boss.health)) : null,
+        bossHpMax: this.currentLevel.boss ? this.boss.maxHealth : null,
+        kills: this.enemyArmy.totalKills,
+        seconds: this.runSeconds(),
+        isDaily: this.isDailyRun,
+        isEndless: false
+      });
       return;
     }
     // Boss-less levels end at the finish line.
@@ -2582,6 +2705,15 @@ export class Game {
       newBest: banked.newBestWaves || banked.newBestKills,
       breakdown: banked.breakdown,
       newBalance: this.save.coins
+    });
+    // Phase 0: telemetry — siege defeat.
+    this.telemetry.defeat({
+      levelId: -1,
+      kind: 'endless',
+      kills,
+      waves: this.endlessWavesCleared,
+      seconds: this.runSeconds(),
+      isEndless: true
     });
   }
 
@@ -2714,9 +2846,113 @@ export class Game {
     // AutoQualityScaler — one call per frame, no loop changes).
     this.autoQuality.tick(rawDt, this.state === 'playing');
 
+    // Phase 0: perf overlay sampling — raw frame time every frame.
+    this.sampleFrameTime(rawDt);
+    this.updatePerfOverlay(rawDt);
+
     this.update(this.scaledTime, dt);
     this.render();
 
     requestAnimationFrame((t) => this.loop(t));
+  }
+
+  // ---------- Phase 0: perf overlay + telemetry helpers ----------
+
+  private runSeconds(): number {
+    return this.runStartMs > 0 ? Math.round((performance.now() - this.runStartMs) / 1000) : 0;
+  }
+
+  private initPerfOverlay(): void {
+    try {
+      this.perfEnabled = new URLSearchParams(window.location.search).has('perf');
+    } catch {
+      this.perfEnabled = false;
+    }
+    if (!this.perfEnabled) return;
+    this.perfOverlay = document.getElementById('perf-overlay');
+    this.perfOverlayText = document.getElementById('perf-overlay-text');
+    this.perfCopyBtn = document.getElementById('perf-copy-btn');
+    if (this.perfOverlay) this.perfOverlay.style.display = 'block';
+    this.perfCopyBtn?.addEventListener('click', () => this.copyDebugExport());
+  }
+
+  private sampleFrameTime(rawDt: number): void {
+    if (!this.perfEnabled) return;
+    this.frameTimes.push(rawDt);
+    if (this.frameTimes.length > 240) this.frameTimes.shift();
+  }
+
+  private perfSnapshot(): Record<string, unknown> {
+    const info = this.renderer.info.render;
+    const mem = this.renderer.info.memory;
+    const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+    return {
+      fps: this.perfFps,
+      frameMsAvg: this.perfFrameAvgMs,
+      frameMsP95: this.perfFrameP95Ms,
+      drawCalls: info.calls,
+      triangles: info.triangles,
+      geometries: mem.geometries,
+      textures: mem.textures,
+      heapMB: heap ? +(heap.usedJSHeapSize / 1048576).toFixed(1) : null,
+      qualityLevel: this.autoQuality.currentLevel,
+      state: this.state,
+      levelId: this.currentLevel ? this.currentLevel.id : null,
+      army: this.playerArmy.count
+    };
+  }
+
+  private updatePerfOverlay(rawDt: number): void {
+    if (!this.perfEnabled || !this.perfOverlayText) return;
+    this.perfTimer += rawDt;
+    if (this.perfTimer < 0.25) return;
+    this.perfTimer = 0;
+    const n = this.frameTimes.length;
+    if (n >= 10) {
+      const total = this.frameTimes.reduce((a, b) => a + b, 0);
+      const sorted = [...this.frameTimes].sort((a, b) => a - b);
+      this.perfFps = Math.round(n / total);
+      this.perfFrameAvgMs = +(1000 * total / n).toFixed(1);
+      this.perfFrameP95Ms = +(1000 * sorted[Math.floor(0.95 * (n - 1))]).toFixed(1);
+    }
+    const s = this.perfSnapshot();
+    this.perfOverlayText.textContent =
+      `QILA RUSH ?perf=1 — ${String(s.state)} L${String(s.levelId ?? '-')}\n` +
+      `FPS ${s.fps} · avg ${s.frameMsAvg}ms · p95 ${s.frameMsP95}ms\n` +
+      `draw ${s.drawCalls} · tris ${s.triangles} · geo ${s.geometries} · tex ${s.textures}\n` +
+      `heap ${s.heapMB ?? '?'}MB · quality ${s.qualityLevel} · army ${s.army}`;
+  }
+
+  private copyDebugExport(): void {
+    const text = this.uiManager.buildDebugExport(this.perfSnapshot(), this.telemetry.snapshot());
+    const done = () => {
+      if (this.perfCopyBtn) {
+        this.perfCopyBtn.textContent = 'COPIED ✓';
+        window.setTimeout(() => {
+          if (this.perfCopyBtn) this.perfCopyBtn.textContent = 'COPY STATS';
+        }, 1500);
+      }
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => this.fallbackCopy(text, done));
+    } else {
+      this.fallbackCopy(text, done);
+    }
+  }
+
+  private fallbackCopy(text: string, done: () => void): void {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      done();
+    } catch {
+      // Clipboard unavailable — the overlay still shows live numbers.
+    }
   }
 }

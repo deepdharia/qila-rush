@@ -90,6 +90,7 @@ export class UIManager {
   private uiProgressText: HTMLElement;
   private bossHud: HTMLElement;
   private uiBossHealthFill: HTMLElement;
+  private uiBossHpText: HTMLElement;
   private floatingBanner: HTMLElement;
   private uiDragHint: HTMLElement;
   private uiBuffTray: HTMLElement;
@@ -200,6 +201,7 @@ export class UIManager {
     this.uiProgressText = document.getElementById('ui-progress-text')!;
     this.bossHud = document.getElementById('boss-hud')!;
     this.uiBossHealthFill = document.getElementById('ui-boss-health-fill')!;
+    this.uiBossHpText = document.getElementById('ui-boss-hp-text')!;
     this.floatingBanner = document.getElementById('floating-banner')!;
     this.uiDragHint = document.getElementById('ui-drag-hint')!;
     this.uiBuffTray = document.getElementById('ui-buff-tray')!;
@@ -293,6 +295,25 @@ export class UIManager {
 
   public updateArmyCount(count: number) {
     this.uiArmyCount.textContent = count.toString();
+    // Phase 1: scale-pop on every change — remove, force a reflow, re-add
+    // so the .pop animation restarts even on rapid successive updates.
+    this.uiArmyCount.classList.remove('pop');
+    void this.uiArmyCount.offsetWidth;
+    this.uiArmyCount.classList.add('pop');
+  }
+
+  /**
+   * Phase 0 — hidden debug export. Serialises the live perf snapshot and
+   * the local-only telemetry snapshot as one JSON string. No UI of its own;
+   * Game wires it to the ?perf=1 overlay's COPY STATS button. Nothing is
+   * sent anywhere — the player chooses to copy it to their clipboard.
+   */
+  public buildDebugExport(perf: Record<string, unknown>, telemetry: unknown): string {
+    return JSON.stringify(
+      { exportedAt: new Date().toISOString(), perf, telemetry },
+      null,
+      2
+    );
   }
 
   public updateProgress(percent: number, sectionName: string = 'FORTRESS CAUSEWAY') {
@@ -364,9 +385,16 @@ export class UIManager {
   public updateBossHealth(current: number, max: number) {
     const pct = Math.max(0, Math.min(100, (current / max) * 100));
     this.uiBossHealthFill.style.width = `${pct}%`;
+    // Phase 1: boss HP as a big number next to the bar (bar-only before).
+    this.uiBossHpText.textContent = `${Math.max(0, Math.ceil(current))} / ${Math.ceil(max)} HP`;
   }
 
-  public showNotification(text: string, color: string = '#fef08a') {
+  // Phase 1: gate "+N" floating text is saffron (#f59e0b) by default, matching
+  // the #floating-banner CSS. NOTE: Game.ts passes an explicit colour on
+  // every call today (e.g. the gate "+N WARRIORS!" call passes '#38bdf8'
+  // blue), which overrides this default — the live gate text only turns
+  // saffron once that Game.ts call site changes its colour argument.
+  public showNotification(text: string, color: string = '#f59e0b') {
     this.floatingBanner.textContent = text;
     this.floatingBanner.style.color = color;
     this.floatingBanner.classList.add('show');

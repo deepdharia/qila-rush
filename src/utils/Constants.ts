@@ -58,17 +58,18 @@ export const CONSTANTS = {
     SANDSTONE: 0xd4a373,
     SANDSTONE_DARK: 0xa66f44,
     SANDSTONE_LIGHT: 0xf4d0a7,
-    BLUE_ROBE: 0x1d4ed8,
+    BLUE_ROBE: 0x2563eb, // Phase 1 (master plan): bold baseline blue
     BLUE_ACCENT: 0x38bdf8,
-    RED_ROBE: 0xb91c1c,
+    RED_ROBE: 0xdc2626, // Phase 1 (master plan): bold baseline red
     RED_ACCENT: 0xef4444,
     GOLD: 0xf59e0b,
     GOLD_LIGHT: 0xfef08a,
     BRONZE: 0x92400e,
     TURBAN_BLUE: 0xf59e0b, // Saffron turban on blue troops
     TURBAN_RED: 0x3f1212,  // Dark crimson turban / iron helm
-    FOG: 0xd9b78c,
-    SKY_TOP: 0x3b82f6,
-    SKY_HORIZON: 0xfbbf24
+    ROAD: 0x8a5a33, // Phase 1 (master plan): darkened causeway tint
+    FOG: 0xe8c39a, // Phase 1 (master plan): warmer haze, thinner (0.0035)
+    SKY_TOP: 0x1e40af, // Phase 1 (master plan): deepened sky gradient
+    SKY_HORIZON: 0xfdba74
   }
 };

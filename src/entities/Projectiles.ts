@@ -3,6 +3,16 @@ import { CONSTANTS } from '../utils/Constants';
 import { ParticleSystem } from './ParticleSystem';
 import { SoundManager } from '../audio/SoundManager';
 
+// Phase 1 (master plan): per-frame allocation sweep — module-level scratch
+// reused by the spawn / update paths. Every use below reads the scratch
+// synchronously (velocity copy, lookAt) before the next call reuses it, so
+// no caller can ever observe a stale value.
+const _dir = new THREE.Vector3();
+const _nextPos = new THREE.Vector3();
+// Reused active-projectile list (same contents getActiveProjectiles() used
+// to return fresh). Callers only iterate it within the frame.
+const _activeList: Projectile[] = [];
+
 export interface Projectile {
   mesh: THREE.Group;
   velocity: THREE.Vector3;
@@ -131,11 +141,11 @@ export class ProjectileManager {
     (p.mesh.children[0] as THREE.Mesh).material = isFire ? this.fireArrowMat : this.arrowMat;
 
     // Compute velocity towards target with slight arc
-    const dir = targetPos.clone().sub(startPos);
-    const dist = dir.length();
-    dir.normalize();
+    _dir.copy(targetPos).sub(startPos);
+    const dist = _dir.length();
+    _dir.normalize();
 
-    p.velocity.copy(dir).multiplyScalar(CONSTANTS.ARROW_SPEED);
+    p.velocity.copy(_dir).multiplyScalar(CONSTANTS.ARROW_SPEED);
     p.velocity.y += Math.min(dist * 0.12, 3.5); // arc upward
 
     p.mesh.lookAt(targetPos);
@@ -164,12 +174,12 @@ export class ProjectileManager {
     p.mesh.children[2].visible = true;
 
     // Arc velocity
-    const dir = targetPos.clone().sub(startPos);
-    const dist = dir.length();
+    _dir.copy(targetPos).sub(startPos);
+    const dist = _dir.length();
     const timeToTarget = dist / 28; // cannonball flight time
-    
-    p.velocity.x = dir.x / timeToTarget;
-    p.velocity.z = dir.z / timeToTarget;
+
+    p.velocity.x = _dir.x / timeToTarget;
+    p.velocity.z = _dir.z / timeToTarget;
     p.velocity.y = 12.0; // high trajectory
 
     p.mesh.visible = true;
@@ -194,8 +204,8 @@ export class ProjectileManager {
       p.mesh.position.addScaledVector(p.velocity, dt);
 
       // Rotate projectile along trajectory vector
-      const nextPos = p.mesh.position.clone().add(p.velocity);
-      p.mesh.lookAt(nextPos);
+      _nextPos.copy(p.mesh.position).add(p.velocity);
+      p.mesh.lookAt(_nextPos);
 
       // Spark trail for fire arrows
       if (p.isFire && Math.random() < 0.4) {
@@ -216,13 +226,15 @@ export class ProjectileManager {
   }
 
   public getActiveProjectiles(): Projectile[] {
-    const list: Projectile[] = [];
+    // Reused list: refilled every call, so a caller must not hold it past
+    // the frame. Game.handleProjectileCollisions() only iterates it.
+    _activeList.length = 0;
     for (let i = 0; i < this.poolSize; i++) {
       if (this.projectiles[i].active) {
-        list.push(this.projectiles[i]);
+        _activeList.push(this.projectiles[i]);
       }
     }
-    return list;
+    return _activeList;
   }
 
   public dispose() {

@@ -12,6 +12,12 @@ import {
 // Phase 5 (Doomfall fortify): wall hack-down rate for halted enemies.
 import { WALL_DPS_PER_ENEMY } from '../systems/WarGear';
 
+// Phase 1 (master plan): per-frame allocation sweep — module-level
+// scratch reused by update() / applyDamage() / killEnemy(). Every particle
+// spawn below reads the vector synchronously (position.copy / component
+// reads), so one shared scratch is safe.
+const _tmpPos = new THREE.Vector3();
+
 export type DamageKind = 'arrow' | 'fire' | 'cannon' | 'splash' | 'burn' | 'piercing' | 'trap';
 
 export interface DamageOpts {
@@ -77,6 +83,12 @@ export class EnemyArmy {
   // here; Game polls them into the normal kill-coin pipeline, so Phase 3's
   // exactly-once banking is untouched.
   private pendingBonusCoins: number = 0;
+  // Phase 1 (master plan): reused getActiveTargets() storage — one
+  // prebuilt wrapper per pooled unit (position is the unit's live Vector3,
+  // health is refreshed on every call) plus one reused list. Callers only
+  // read the wrappers within the frame; PlayerArmy never stores them.
+  private targetWrappers: { position: THREE.Vector3; health: number; enemyRef: EnemyUnit }[] = [];
+  private activeTargets: { position: THREE.Vector3; health: number; enemyRef: EnemyUnit }[] = [];
   // Spawn queue (L22+ fix): when overlapping waves exhaust the 90-unit
   // pool, the unspawned remainder waits here instead of being silently
   // dropped, and drains as slots free up in update().
@@ -197,6 +209,18 @@ export class EnemyArmy {
         ring,
         hpBarBg,
         hpBarFg
+      });
+    }
+
+    // Phase 1 (master plan): one target wrapper per pooled unit, built
+    // once — getActiveTargets() refills a reused list from these instead
+    // of allocating a fresh wrapper object per live enemy per frame.
+    for (let i = 0; i < this.poolSize; i++) {
+      const enemy = this.enemies[i];
+      this.targetWrappers.push({
+        position: enemy.position,
+        health: enemy.health,
+        enemyRef: enemy
       });
     }
   }
@@ -396,9 +420,12 @@ export class EnemyArmy {
             // player plane it deactivates like any straggler below.
             if (enemy.trampleTimer <= 0) {
               enemy.trampleTimer = 1.0;
-              this.particles.spawnDustBurst(enemy.position.clone(), 16);
+              _tmpPos.copy(enemy.position);
+              this.particles.spawnDustBurst(_tmpPos, 16);
+              _tmpPos.copy(enemy.position);
+              _tmpPos.y += 2.6;
               this.particles.spawnFloatingText(
-                enemy.position.clone().add(new THREE.Vector3(0, 2.6, 0)),
+                _tmpPos,
                 '🐘 TRAMPLE!',
                 'boss'
               );
@@ -439,7 +466,9 @@ export class EnemyArmy {
     enemy.isHitFlash = true;
     enemy.flashTimer = 0.08;
 
-    this.particles.spawnSparks(enemy.position.clone().add(new THREE.Vector3(0, 0.8, 0)), 4, 0xef4444);
+    _tmpPos.copy(enemy.position);
+    _tmpPos.y += 0.8;
+    this.particles.spawnSparks(_tmpPos, 4, 0xef4444);
     this.sounds.playArrowHit();
 
     if (enemy.health <= 0) {
@@ -453,15 +482,19 @@ export class EnemyArmy {
     // The bonus itself is collected by Game into the normal kill-coin
     // pipeline (see consumeBonusCoins) — nothing is credited here.
     const bonus = enemy.coinBonus;
+    _tmpPos.copy(enemy.position);
+    _tmpPos.y += 0.6;
     this.particles.spawnSparks(
-      enemy.position.clone().add(new THREE.Vector3(0, 0.6, 0)),
+      _tmpPos,
       bonus > 0 ? 24 : 12,
       bonus > 0 ? 0xfde047 : 0xef4444
     );
     if (bonus > 0) {
       this.pendingBonusCoins += bonus;
+      _tmpPos.copy(enemy.position);
+      _tmpPos.y += 2.2;
       this.particles.spawnFloatingText(
-        enemy.position.clone().add(new THREE.Vector3(0, 2.2, 0)),
+        _tmpPos,
         `🪙 +${bonus}`,
         'combo'
       );
@@ -483,18 +516,19 @@ export class EnemyArmy {
   }
 
   public getActiveTargets(): { position: THREE.Vector3; health: number; enemyRef: EnemyUnit }[] {
-    const list = [];
+    // Reused list of prebuilt wrappers (see targetWrappers): health is
+    // refreshed here, position is the unit's live Vector3. Callers must
+    // not hold the list past the frame.
+    this.activeTargets.length = 0;
     for (let i = 0; i < this.poolSize; i++) {
       const enemy = this.enemies[i];
       if (enemy.active && enemy.health > 0) {
-        list.push({
-          position: enemy.position,
-          health: enemy.health,
-          enemyRef: enemy
-        });
+        const w = this.targetWrappers[i];
+        w.health = enemy.health;
+        this.activeTargets.push(w);
       }
     }
-    return list;
+    return this.activeTargets;
   }
 
   public clearAll() {

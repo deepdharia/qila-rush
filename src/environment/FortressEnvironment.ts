@@ -9,6 +9,12 @@ import {
   getBannerEmblemTexture
 } from '../utils/CanvasTextures';
 
+// Phase 1 (master plan): a phone is a coarse pointer (touch-first device)
+// or a narrow viewport. Same test as Game / ParticleSystem — kept local
+// per file so no shared helper has to live in a file this phase doesn't own.
+const IS_PHONE =
+  window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 768;
+
 interface Torch {
   flame: THREE.Mesh;
   glow: THREE.Sprite;
@@ -72,7 +78,8 @@ export class FortressEnvironment {
 
   private buildLighting() {
     // Golden-hour hemisphere: warm sky bounce + earthy ground bounce.
-    const hemi = new THREE.HemisphereLight(0xffdf9e, 0x7a4a26, 0.9);
+    // Phase 1 (master plan): intensity 0.9 -> 1.1 for the bolder baseline.
+    const hemi = new THREE.HemisphereLight(0xffdf9e, 0x7a4a26, 1.1);
     this.scene.add(hemi);
 
     // Low golden sun ahead-right of the causeway, so gates and soldiers are
@@ -81,8 +88,10 @@ export class FortressEnvironment {
     sun.position.set(48, 55, 320);
     sun.target.position.set(0, 0, 160);
     sun.castShadow = true;
-    sun.shadow.mapSize.width = 2048;
-    sun.shadow.mapSize.height = 2048;
+    // Phase 1 (master plan): 1024 shadow map on phones (2048 on desktop).
+    const shadowSize = IS_PHONE ? 1024 : 2048;
+    sun.shadow.mapSize.width = shadowSize;
+    sun.shadow.mapSize.height = shadowSize;
     // Ortho frustum covers the whole 320-long road from the low sun angle.
     sun.shadow.camera.near = 10;
     sun.shadow.camera.far = 420;
@@ -105,8 +114,14 @@ export class FortressEnvironment {
   private buildSkyAndFog() {
     // Warm golden-hour haze; light enough to keep gates/barriers readable
     // ~60 units ahead of the camera.
-    this.scene.background = new THREE.Color(0xe2a468);
-    this.scene.fog = new THREE.FogExp2(0xe2a468, 0.006);
+    // Phase 1 (master plan): fog 0.006 -> 0.0035, colour from CONSTANTS
+    // (0xe8c39a). The sky-dome gradient itself is painted by
+    // getSkyTexture() in CanvasTextures.ts (not owned this phase) — its
+    // stops still carry the old gradient; SKY_TOP / SKY_HORIZON in
+    // Constants.ts now hold the deepened #1E40AF -> #FDBA74 values for
+    // whoever repaints that texture.
+    this.scene.background = new THREE.Color(CONSTANTS.COLORS.FOG);
+    this.scene.fog = new THREE.FogExp2(CONSTANTS.COLORS.FOG, 0.0035);
 
     // Gradient sky dome (canvas texture, no shader cost, one draw call).
     // Centred on the level middle so it stays inside the camera far plane
@@ -200,6 +215,10 @@ export class FortressEnvironment {
     const roadGeo = new THREE.PlaneGeometry(CONSTANTS.ROAD_WIDTH, CONSTANTS.LEVEL_LENGTH + 60);
     const roadMat = new THREE.MeshStandardMaterial({
       map: roadTexture,
+      // Phase 1 (master plan): darkened causeway. The colour multiplies
+      // the sandstone map, so the road reads darker without losing the
+      // block texture.
+      color: CONSTANTS.COLORS.ROAD,
       roughness: 0.85,
       metalness: 0.1
     });

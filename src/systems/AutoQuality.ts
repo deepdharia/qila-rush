@@ -62,6 +62,18 @@ export class AutoQualityScaler {
     this.setLevel(level);
   }
 
+  /**
+   * Phase 1 (master plan): phone default — start at `level` WITHOUT
+   * setting manualOverride, so auto-scaling keeps working from there
+   * (stepping down on sustained low FPS, back up when headroom returns).
+   * No-op when already at that level (setLevel guards it).
+   */
+  public startAt(level: QualityLevel): void {
+    this.lowStreakS = 0;
+    this.highStreakS = 0;
+    this.setLevel(level);
+  }
+
   /** Re-enable auto-scaling (unused by the UI today; kept for completeness). */
   public setAuto(): void {
     this.manualOverride = false;

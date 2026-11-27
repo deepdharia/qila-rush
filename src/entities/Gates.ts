@@ -17,6 +17,8 @@ export interface GateData {
   portalMesh: THREE.Mesh;
   textureCanvas: HTMLCanvasElement;
   texture: THREE.CanvasTexture;
+  // Phase 1 (master plan): pulsing gold ring on x (mult) gates only.
+  ringMesh?: THREE.Mesh;
 }
 
 export class GateManager {
@@ -125,6 +127,17 @@ export class GateManager {
     portalMesh.position.set(0, 2.0, 0);
     group.add(portalMesh);
 
+    // Phase 1 (master plan): a pulsing gold ring on x (mult) gates, so the
+    // multiplier reads as the prize at a glance. Reuses the shared gold
+    // material and the group's own transform — no new textures, and it
+    // leaves with the group on prune/dispose.
+    let ringMesh: THREE.Mesh | undefined;
+    if (op === 'mult') {
+      ringMesh = new THREE.Mesh(new THREE.TorusGeometry(1.9, 0.09, 8, 40), this.goldMat);
+      ringMesh.position.set(0, 2.0, 0.15);
+      group.add(ringMesh);
+    }
+
     this.scene.add(group);
 
     this.gates.push({
@@ -138,7 +151,8 @@ export class GateManager {
       collected: false,
       portalMesh,
       textureCanvas: canvas,
-      texture
+      texture,
+      ringMesh
     });
   }
 
@@ -184,21 +198,34 @@ export class GateManager {
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '900 130px Cinzel, serif';
+    // Phase 1 (master plan): value text 1.5x bigger (130px -> 195px).
+    ctx.font = '900 195px Cinzel, serif';
+
+    // Phase 1 (master plan): a skull crowns - (sub) gates, so the hazard
+    // reads before the number does. The number + subtitle shift down on
+    // sub gates to make room for it; other gates keep the old layout.
+    const textY = op === 'sub' ? canvas.height / 2 + 10 : canvas.height / 2 - 14;
+    const subY = op === 'sub' ? canvas.height / 2 + 115 : canvas.height / 2 + 85;
+    if (op === 'sub') {
+      ctx.font = '64px sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText('☠', canvas.width / 2, 62);
+      ctx.font = '900 195px Cinzel, serif';
+    }
 
     // Drop shadow
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.fillText(text, canvas.width / 2 + 4, canvas.height / 2 - 10);
+    ctx.fillText(text, canvas.width / 2 + 4, textY + 4);
 
     // Main text
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(text, canvas.width / 2, canvas.height / 2 - 14);
+    ctx.fillText(text, canvas.width / 2, textY);
 
     // Subtitle label
     ctx.font = '700 36px Rajdhani, sans-serif';
     ctx.fillStyle = '#fef3c7';
     const sub = op === 'mult' ? 'ARMY MULTIPLIER' : (isPositive ? 'WARRIORS' : 'HAZARD');
-    ctx.fillText(sub, canvas.width / 2, canvas.height / 2 + 85);
+    ctx.fillText(sub, canvas.width / 2, subY);
   }
 
   public checkPlayerCollision(
@@ -220,6 +247,7 @@ export class GateManager {
 
           // Dissolve visual
           g.portalMesh.visible = false;
+          if (g.ringMesh) g.ringMesh.visible = false;
           this.sounds.playGatePass(g.isPositive);
           this.particles.spawnSparks(
             new THREE.Vector3(g.x, 2.0, g.z),
@@ -240,6 +268,13 @@ export class GateManager {
       if (!g.collected) {
         (g.portalMesh.material as THREE.MeshBasicMaterial).opacity =
           0.82 + Math.sin(time * 6 + i) * 0.12;
+        // Phase 1 (master plan): the gold ring on x (mult) gates pulses,
+        // so the multiplier keeps drawing the eye. Scale-only — the shared
+        // gold material is never touched.
+        if (g.ringMesh) {
+          const s = 1 + Math.sin(time * 3 + i) * 0.08;
+          g.ringMesh.scale.setScalar(s);
+        }
       }
     }
   }
@@ -249,6 +284,7 @@ export class GateManager {
       const g = this.gates[i];
       g.collected = false;
       g.portalMesh.visible = true;
+      if (g.ringMesh) g.ringMesh.visible = true;
     }
   }
 

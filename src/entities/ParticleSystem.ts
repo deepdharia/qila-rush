@@ -24,10 +24,23 @@ interface DamageNumber {
 
 export type DamageNumberKind = 'hit' | 'fire' | 'barrier' | 'boss' | 'graze' | 'combo';
 
+// Phase 1 (master plan): a phone is a coarse pointer (touch-first device)
+// or a narrow viewport. Same test as Game / FortressEnvironment — kept
+// local per file so no shared helper has to live in a file this phase
+// doesn't own.
+const IS_PHONE =
+  window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 768;
+// Phase 1 (master plan): phone live-particle budget. The pool stays 350
+// (plan D14); only how many may be alive at once on a phone is capped.
+const PHONE_PARTICLE_BUDGET = 120;
+
 export class ParticleSystem {
   private scene: THREE.Scene;
   private particles: Particle[] = [];
   private poolSize = 350;
+  // Live-particle count, maintained by claimParticle() / update(). The
+  // phone budget is enforced against this, not by scanning the pool.
+  private activeCount = 0;
 
   private damageNumbers: DamageNumber[] = [];
   private damageNumberPoolSize = 24;
@@ -115,9 +128,23 @@ export class ParticleSystem {
     return null;
   }
 
+  /**
+   * Phase 1 (master plan): claim one pooled particle, enforcing the phone
+   * live budget (120). Returns null when the pool is dry OR the phone
+   * budget is spent — the caller just spawns fewer particles that frame;
+   * the pool size and API are unchanged.
+   */
+  private claimParticle(): Particle | null {
+    if (IS_PHONE && this.activeCount >= PHONE_PARTICLE_BUDGET) return null;
+    const p = this.getFreeParticle();
+    if (!p) return null;
+    this.activeCount++;
+    return p;
+  }
+
   public spawnSparks(pos: THREE.Vector3, count: number = 6, color: number = 0xfef08a) {
     for (let i = 0; i < count; i++) {
-      const p = this.getFreeParticle();
+      const p = this.claimParticle();
       if (!p) break;
 
       p.active = true;
@@ -142,7 +169,7 @@ export class ParticleSystem {
 
   public spawnWoodSplinters(pos: THREE.Vector3, count: number = 18) {
     for (let i = 0; i < count; i++) {
-      const p = this.getFreeParticle();
+      const p = this.claimParticle();
       if (!p) break;
 
       p.active = true;
@@ -172,7 +199,7 @@ export class ParticleSystem {
   public spawnExplosion(pos: THREE.Vector3, radius: number = 4.0) {
     const count = 35;
     for (let i = 0; i < count; i++) {
-      const p = this.getFreeParticle();
+      const p = this.claimParticle();
       if (!p) break;
 
       p.active = true;
@@ -200,7 +227,7 @@ export class ParticleSystem {
 
   public spawnVictoryPetals(pos: THREE.Vector3, count: number = 25) {
     for (let i = 0; i < count; i++) {
-      const p = this.getFreeParticle();
+      const p = this.claimParticle();
       if (!p) break;
 
       p.active = true;
@@ -228,7 +255,7 @@ export class ParticleSystem {
 
   public spawnDustBurst(pos: THREE.Vector3, count: number = 20) {
     for (let i = 0; i < count; i++) {
-      const p = this.getFreeParticle();
+      const p = this.claimParticle();
       if (!p) break;
 
       p.active = true;
@@ -335,6 +362,7 @@ export class ParticleSystem {
       if (p.life >= p.maxLife) {
         p.active = false;
         p.mesh.visible = false;
+        this.activeCount--;
         continue;
       }
 
@@ -383,6 +411,7 @@ export class ParticleSystem {
       this.scene.remove(p.mesh);
     });
     this.particles = [];
+    this.activeCount = 0;
     this.damageNumbers.forEach(n => {
       this.scene.remove(n.sprite);
       n.texture.dispose();

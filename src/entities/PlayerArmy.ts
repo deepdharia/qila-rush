@@ -5,6 +5,13 @@ import { ProjectileManager } from './Projectiles';
 import { SoundManager } from '../audio/SoundManager';
 import { ParticleSystem } from './ParticleSystem';
 
+// Phase 1 (master plan): per-frame allocation sweep — module-level scratch
+// reused by handleAutoShooting(). spawnArrow() copies both vectors
+// synchronously (velocity + lookAt), so one scratch each is safe across
+// the volley loop.
+const _startPos = new THREE.Vector3();
+const _aimPos = new THREE.Vector3();
+
 export class PlayerArmy {
   public group: THREE.Group;
   private scene: THREE.Scene;
@@ -197,11 +204,11 @@ export class PlayerArmy {
           const soldier = this.soldiers[i];
           if (!soldier || !soldier.root.visible) continue;
 
-          const startWorldPos = new THREE.Vector3();
+          const startWorldPos = _startPos;
           soldier.root.getWorldPosition(startWorldPos);
 
           // Add slight jitter to arrow targets so volleys spray over crowd
-          const aimPos = bestTarget.position.clone();
+          const aimPos = _aimPos.copy(bestTarget.position);
           aimPos.x += (Math.random() - 0.5) * 1.4;
           aimPos.y += 0.5 + Math.random() * 0.5;
           aimPos.z += (Math.random() - 0.5) * 1.0;
@@ -209,9 +216,10 @@ export class PlayerArmy {
           this.projectiles.spawnArrow(startWorldPos, aimPos, this.isFlamingArrows, this.isPiercingArrows);
 
           if (doubleThisVolley) {
-            const spreadAim = aimPos.clone();
-            spreadAim.x += (Math.random() - 0.5) * 2.0;
-            this.projectiles.spawnArrow(startWorldPos, spreadAim, this.isFlamingArrows, this.isPiercingArrows);
+            // Re-jitter the same scratch in place: spawnArrow already
+            // consumed the previous aim, so no second vector is needed.
+            aimPos.x += (Math.random() - 0.5) * 2.0;
+            this.projectiles.spawnArrow(startWorldPos, aimPos, this.isFlamingArrows, this.isPiercingArrows);
           }
         }
 
@@ -221,9 +229,9 @@ export class PlayerArmy {
         for (let k = 0; k < this.volleyExtraArrows; k++) {
           const soldier = this.soldiers[k % Math.max(1, shootersCount)];
           if (!soldier || !soldier.root.visible) continue;
-          const startWorldPos = new THREE.Vector3();
+          const startWorldPos = _startPos;
           soldier.root.getWorldPosition(startWorldPos);
-          const wideAim = bestTarget.position.clone();
+          const wideAim = _aimPos.copy(bestTarget.position);
           wideAim.x += (Math.random() - 0.5) * 7.0;
           wideAim.y += 0.5 + Math.random() * 0.5;
           wideAim.z += (Math.random() - 0.5) * 1.0;
