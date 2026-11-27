@@ -106,3 +106,52 @@ telemetry numbers will be judged against.**
 - Real boss HP remaining on defeat (how close were the losses?).
 - Draft picks taken (which bonuses players actually choose).
 - Session length, runs/session, day-2 return flag.
+
+## Phone baseline — Deep, 2026-11-27 21:13 IST (measured, not computed)
+
+**Source:** `?perf=1` COPY STATS export from Deep's phone, 2026-11-27T15:43:06Z.
+Export covers 4 sessions, 3 runs, events 12:22–15:43 UTC.
+
+### Perf — Level 1 (army 27, state playing, quality level 1)
+| Metric | Measured |
+|---|---|
+| FPS | **60** |
+| Frame avg | 16.7 ms |
+| Frame p95 | 18 ms |
+| Draw calls | **739** |
+| Triangles | 39,000 |
+| Geometries | 145 |
+| Textures | 25 |
+| JS heap | null (not reported by the device) |
+
+**Reading:** 60 fps holds at a small army (27) on his phone — the Phase 1
+quick wins (phones start at quality level 1, AA off, DPR 1.5, 1024 shadows)
+are working. But **739 draw calls at only 27 soldiers confirms the
+instancing problem is real: ~27 calls per soldier**, so a full 210-soldier
+clash extrapolates to **~5,000 draw calls** — the same ~4,800–5,000 the
+computed baseline predicted. Phase 3 (instancing) is not optional, and the
+pull-forward rule stays in force: **FPS <30 in the big clash → instancing
+before Phase 4.**
+
+### Telemetry — first real data (v1)
+| Field | Value |
+|---|---|
+| firstSessionDate / daysPlayed | 2026-11-27 / 1 |
+| Sessions / runs | 4 / 3 |
+| Wins / defeats | 0 / 0 |
+| Per-level | empty |
+| Draft picks (18 total) | coin_magnet 1, cannon_reload 5, fire_rate 4, flaming_arrows 4, reinforcements 4 |
+| Attempts | all 3 were Endless (levelId −1, startArmy 8) |
+| Session lengths | 2s, 67s, 121s (+ current session) |
+
+**Reading:** telemetry is recording correctly — sessions, attempts and draft
+picks all land. **0 wins / 0 defeats across 3 Endless runs: the runs ended
+mid-session without a recorded outcome** (Endless outcomes unrecorded in
+this sample) — noted as such, not treated as a bug without evidence.
+Early signal only: cannon_reload is the most-picked draft bonus (5/18);
+coin_magnet the least (1/18). Too small a sample to tune on.
+
+### Still missing (Phase 2 playtest must ask for these)
+- **Boss-level FPS / draw calls / p95** — not measured.
+- **L22+ (biggest clash) FPS / draw calls / p95** — not measured. The
+  big-clash FPS ≥30 gate is **still unconfirmed** on his phone.

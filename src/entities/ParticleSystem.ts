@@ -22,7 +22,7 @@ interface DamageNumber {
   active: boolean;
 }
 
-export type DamageNumberKind = 'hit' | 'fire' | 'barrier' | 'boss' | 'graze' | 'combo';
+export type DamageNumberKind = 'hit' | 'fire' | 'barrier' | 'boss' | 'graze' | 'combo' | 'loss';
 
 // Phase 1 (master plan): a phone is a coarse pointer (touch-first device)
 // or a narrow viewport. Same test as Game / FortressEnvironment — kept
@@ -306,7 +306,11 @@ export class ParticleSystem {
       barrier: '#fbbf24',
       boss: '#f59e0b',
       graze: '#a5f3fc',
-      combo: '#fde047'
+      combo: '#fde047',
+      // Phase 2 (Topkhana stream): red "−N" number burst for hazard /
+      // casualty gates. "×N" stays gold via 'combo' (already wired in
+      // Game.ts); the pool API is unchanged.
+      loss: '#ef4444'
     };
     const scales: Record<DamageNumberKind, number> = {
       hit: 1.0,
@@ -314,7 +318,8 @@ export class ParticleSystem {
       barrier: 1.2,
       boss: 1.7,
       graze: 1.0,
-      combo: 1.5
+      combo: 1.5,
+      loss: 1.2
     };
 
     const ctx = n.canvas.getContext('2d');

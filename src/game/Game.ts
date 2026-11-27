@@ -4,10 +4,11 @@ import { FortressEnvironment } from '../environment/FortressEnvironment';
 import { PlayerArmy } from '../entities/PlayerArmy';
 import { EnemyArmy, type EnemyUnit } from '../entities/EnemyArmy';
 import { BossEnemy } from '../entities/BossEnemy';
-import { GateManager } from '../entities/Gates';
+import { GateManager, type GateData } from '../entities/Gates';
 import { BarrierManager, BarrierReward } from '../entities/Barriers';
 import { FortificationManager } from '../entities/Fortifications';
-import { SoldierModelFactory } from '../entities/SoldierModel';
+import { SoldierModelFactory, type SoldierVisual } from '../entities/SoldierModel';
+import { Topkhana } from '../entities/Topkhana';
 import { ProjectileManager } from '../entities/Projectiles';
 import { ParticleSystem } from '../entities/ParticleSystem';
 import { CameraManager } from './CameraManager';
@@ -47,7 +48,8 @@ import {
   endlessWaveTypes,
   endlessBossHp,
   endlessBossCoins,
-  endlessLevelConfig
+  endlessLevelConfig,
+  endlessGatePair
 } from '../systems/Endless';
 // Phase 4 (Doomfall enemy types): first-sighting banners per type.
 import { ENEMY_TYPE_INTRO, type EnemyType } from '../systems/EnemyTypes';
@@ -134,6 +136,19 @@ interface EndlessDefeatRecord {
 }
 
 type LastDefeat = LevelDefeatRecord | EndlessDefeatRecord;
+
+// Phase 2 (master plan): one logical stream soldier — a warrior fired by
+// the Topkhana, travelling up the lane toward the warband. `visual` is a
+// pooled SoldierVisual (null when all STREAM_MAX_VISUALS are live — the
+// soldier still exists and still processes gates, it just has no mesh).
+// StreamSoldier records are pooled too (see streamPool): the hot loop
+// never allocates.
+interface StreamSoldier {
+  x: number;
+  z: number;
+  prevZ: number;
+  visual: SoldierVisual | null;
+}
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -329,6 +344,28 @@ export class Game {
   // behaving exactly as before (no burn).
   private gearFireArrows: boolean = false;
 
+  // --- Phase 2 (master plan): Topkhana stream state ---
+  // The cannon-stream is the core input (settled decision Q1): the
+  // Topkhana fires warriors that travel up the lane, pass through Torana
+  // gates (processed per soldier) and merge into the warband. The army
+  // count grows ONLY on a merge or a gate add — never faked; the HUD
+  // always shows the real count. When STREAM_ENABLED is false the old
+  // march-through-gate behaviour runs instead (rollback flag).
+  private topkhana: Topkhana;
+  private streamActive: StreamSoldier[] = [];
+  private streamPool: StreamSoldier[] = [];
+  private streamSpawnAcc: number = 0;
+  private streamSpawnCounter: number = 0;
+  private streamRateMult: number = 1;
+  private streamLanes: number = 1;
+  private gateLuckCharges: number = 0;
+  private mergeQueue: number = 0; // arrived soldiers waiting for a free slot at the cap
+  private passedGateZs = new Set<number>(); // gate zs the warband has passed (daily 'gates' mission)
+  private soundedGates = new Set<GateData>(); // gates whose pass sound already played this run (stream crosses a gate many times — the sound plays once, on the first soldier through)
+  private vsShown: boolean = false;
+  private lastVsPlayer: number = -1;
+  private lastVsEnemy: number = -1;
+
   constructor() {
     this.canvas = document.getElementById('webgl-canvas') as HTMLCanvasElement;
 
@@ -373,6 +410,13 @@ export class Game {
       this.particles,
       this.soundManager
     );
+    // Phase 2 (Topkhana stream): the cannon + its stream-visual pool.
+    this.topkhana = new Topkhana(this.scene);
+    // Preallocate the logical stream-soldier pool (256 records): the hot
+    // loop recycles these instead of allocating per spawn.
+    for (let i = 0; i < 256; i++) {
+      this.streamPool.push({ x: 0, z: 0, prevZ: 0, visual: null });
+    }
     // Phase 5: trap damage rides the enemy army's own damage path (kind
     // 'trap' ignores shield front guard, and kills pay coins through the
     // normal pipeline). Wall-break banners go through the notification UI.
@@ -449,7 +493,10 @@ export class Game {
     this.barrierManager = new BarrierManager(this.scene, this.soundManager, this.particles);
 
     cfg.gates.forEach((g) =>
-      this.gateManager.createGatePair(g.z, g.leftOp, g.leftVal, g.rightOp, g.rightVal)
+      this.gateManager.createGatePair(
+        g.z, g.leftOp, g.leftVal, g.rightOp, g.rightVal,
+        { golden: g.golden, moving: g.moving }
+      )
     );
     // F5 fix: the camera's gate FOV kick follows this level's real gates.
     this.cameraManager.setGatePositions(cfg.gates.map((g) => g.z));
@@ -1076,15 +1123,28 @@ export class Game {
     if (isFirstEverRun && cfg.id === 1) {
       this.shieldLeft = Math.max(this.shieldLeft, 10);
       this.uiManager.showNotification('🛡️ FIRST-BATTLE SHIELD — ABSORBS 10 HITS!', '#38bdf8');
-      window.setTimeout(() => {
-        if (this.state === 'playing') this.uiManager.showNotification('👆 DRAG TO STEER — AIM FOR THE BLUE GATES!', '#38bdf8');
-      }, 2500);
-      window.setTimeout(() => {
-        if (this.state === 'playing') this.uiManager.showNotification('🛡️ BLUE GATES ADD WARRIORS — GOLD MULTIPLIES THEM!', '#f59e0b');
-      }, 8000);
-      window.setTimeout(() => {
-        if (this.state === 'playing') this.uiManager.showNotification('🏹 YOUR ARMY FIRES ON ITS OWN — JUST STEER!', '#fef08a');
-      }, 14000);
+      if (CONSTANTS.STREAM_ENABLED) {
+        // Phase 2 (Topkhana stream): teach the cannon, not the march.
+        window.setTimeout(() => {
+          if (this.state === 'playing') this.uiManager.showNotification('👆 DRAG TO AIM THE CANNON!', '#38bdf8');
+        }, 2500);
+        window.setTimeout(() => {
+          if (this.state === 'playing') this.uiManager.showNotification('🌟 STREAM THROUGH THE GOLD GATES!', '#f59e0b');
+        }, 8000);
+        window.setTimeout(() => {
+          if (this.state === 'playing') this.uiManager.showNotification('🏹 YOUR ARMY FIGHTS ON ITS OWN!', '#fef08a');
+        }, 14000);
+      } else {
+        window.setTimeout(() => {
+          if (this.state === 'playing') this.uiManager.showNotification('👆 DRAG TO STEER — AIM FOR THE BLUE GATES!', '#38bdf8');
+        }, 2500);
+        window.setTimeout(() => {
+          if (this.state === 'playing') this.uiManager.showNotification('🛡️ BLUE GATES ADD WARRIORS — GOLD MULTIPLIES THEM!', '#f59e0b');
+        }, 8000);
+        window.setTimeout(() => {
+          if (this.state === 'playing') this.uiManager.showNotification('🏹 YOUR ARMY FIRES ON ITS OWN — JUST STEER!', '#fef08a');
+        }, 14000);
+      }
     }
     // Phase 0: telemetry — run attempt (army after upgrades + boosters).
     this.runStartMs = performance.now();
@@ -1289,6 +1349,21 @@ export class Game {
     this.hornMult = 1;
     this.gearFireArrows = false;
     this.applyGearLoadout();
+
+    // Phase 2 (Topkhana stream): run-scoped stream state is gone with the
+    // run — in-flight soldiers, the merge queue, draft-scaled rate/lanes
+    // and gate-luck charges never leak into the next level.
+    this.clearStream();
+    this.streamRateMult = 1;
+    this.streamLanes = 1;
+    this.gateLuckCharges = 0;
+    this.mergeQueue = 0;
+    this.passedGateZs.clear();
+    this.soundedGates.clear();
+    this.vsShown = false;
+    this.lastVsPlayer = -1;
+    this.lastVsEnemy = -1;
+    this.topkhana.reset();
   }
 
   /**
@@ -1552,6 +1627,13 @@ export class Game {
     this.cameraManager.shake(0.8, 0.5);
     this.vibrate(40);
 
+    // Phase 2 (Topkhana stream): the 3 cannonballs leave from the
+    // Topkhana muzzle — recoil + muzzle flash on fire. The muzzle pos is
+    // captured now (getMuzzleWorldPos returns a reused scratch vector),
+    // so the staggered balls all originate at the same firing position.
+    this.topkhana.recoil();
+    const muzzle = this.topkhana.getMuzzleWorldPos().clone();
+
     // Fire 3 Royal Bronze Cannonballs along the road ahead
     const front = this.playerArmy.getFrontPosition();
     const targets = [
@@ -1563,9 +1645,9 @@ export class Game {
     targets.forEach((targetPos, idx) => {
       setTimeout(() => {
         const startPos = new THREE.Vector3(
-          front.x + (idx - 1) * 3.0,
-          2.0,
-          front.z - 4.0
+          muzzle.x + (idx - 1) * 1.5,
+          muzzle.y,
+          muzzle.z
         );
         this.projectiles.spawnCannonball(startPos, targetPos);
       }, idx * 120);
@@ -1745,7 +1827,8 @@ export class Game {
       goodFirst ? goodOp : otherOp,
       goodFirst ? goodVal : otherVal,
       goodFirst ? otherOp : goodOp,
-      goodFirst ? otherVal : goodVal
+      goodFirst ? otherVal : goodVal,
+      endlessGatePair(wave)
     );
     this.endlessGateZs.push(start + 22);
     this.cameraManager.setGatePositions(this.endlessGateZs);
@@ -1791,6 +1874,14 @@ export class Game {
 
     this.playerArmy.currentZ -= shift;
     this.playerArmy.group.position.z -= shift;
+
+    // Phase 2 (Topkhana stream): in-flight stream soldiers slide with the
+    // world (the cannon follows the warband automatically; the merge queue
+    // is a count, so it needs no shift).
+    for (let i = 0; i < this.streamActive.length; i++) {
+      this.streamActive[i].z -= shift;
+      this.streamActive[i].prevZ -= shift;
+    }
 
     for (const e of this.enemyArmy.enemies) {
       if (!e.active) continue;
@@ -1939,8 +2030,24 @@ export class Game {
     }
 
     // Update Gates & Check Collisions
-    this.gateManager.update(time);
-    this.gateManager.checkPlayerCollision(playerPos.x, playerPos.z, (op, val) => {
+    // Phase 2 (Topkhana stream): the cannon follows the warband every
+    // frame (stream mode or not — it is also the bombardment ability's
+    // body, so its muzzle must stay true with the stream rolled back).
+    // Drag aims the cannon: inputManager.currentTargetX IS the aim point,
+    // and the line above still feeds it into playerArmy.targetX, so the
+    // warband marches toward the aim point with the same smoothing.
+    this.topkhana.update(dt, this.inputManager.currentTargetX, playerPos.z);
+    // Pass warbandZ so spent gates dim (Worker 2's update signature).
+    this.gateManager.update(time, playerPos.z);
+    if (CONSTANTS.STREAM_ENABLED) {
+      // Stream mode: gates process each passing stream soldier; the daily
+      // 'gates' mission is recorded once per gate pair the warband passes.
+      this.updateStream(dt, playerPos.z);
+      this.recordPassedGates(playerPos.z);
+      this.updateVsReadout(playerPos.z);
+    } else {
+      // Rollback: the old march-through-gate trigger, exactly as before.
+      this.gateManager.checkPlayerCollision(playerPos.x, playerPos.z, (op, val) => {
       if (op === 'add') {
         this.playerArmy.addWarriors(val);
         this.uiManager.showNotification(`+${val} WARRIORS!`, '#f59e0b');
@@ -1967,7 +2074,8 @@ export class Game {
       if (op !== 'sub') this.save.recordMission('gates');
       this.cameraManager.shake(0.25, 0.15);
       this.uiManager.updateArmyCount(this.playerArmy.count);
-    });
+      });
+    }
 
     // Check Barrier Player Ramming
     this.barrierManager.checkPlayerCollision(playerPos.z, (casualties) => {
@@ -2143,6 +2251,8 @@ export class Game {
           this.projectiles.deactivate(p);
           const prevHealth = this.boss.health;
           const wasKilled = this.boss.takeDamage(p.damage);
+          // Phase 2 (Topkhana stream) J6: boss hit-flash on every hit.
+          this.boss.flash();
           this.particles.spawnDamageNumber(
             _dmgPos.copy(this.boss.position).setY(this.boss.position.y + 4.2),
             p.damage,
@@ -2203,6 +2313,283 @@ export class Game {
     // one draft for this barrier break; it opens at the end of the frame
     // (maybeOpenDraft), so the reward + draft never double-fire.
     this.queueDraft('barrier');
+  }
+
+  // ---------- Phase 2 (master plan): Topkhana stream ----------
+
+  /**
+   * Per-frame stream simulation (stream mode only, state === 'playing').
+   * Zero per-frame allocation: soldiers are recycled from streamPool,
+   * visuals from the Topkhana pool, and all scratch vectors are module
+   * level. Order per soldier: move -> gate process -> merge check.
+   * Iterates backwards so swap-removals never revisit a soldier.
+   */
+  private updateStream(dt: number, warbandZ: number): void {
+    // Spawn: base rate per lane, scaled by the stream_rate draft.
+    this.streamSpawnAcc +=
+      dt * CONSTANTS.STREAM_RATE_BASE * this.streamRateMult * this.streamLanes;
+    let guard = 0;
+    while (this.streamSpawnAcc >= 1 && guard < 12) {
+      this.streamSpawnAcc -= 1;
+      guard++;
+      const lane = this.streamSpawnCounter++ % this.streamLanes;
+      let laneOffset = 0;
+      if (this.streamLanes === 2) laneOffset = lane === 0 ? -1.2 : 1.2;
+      else if (this.streamLanes === 3) laneOffset = (lane - 1) * 1.2;
+      const spawnX =
+        this.inputManager.currentTargetX +
+        laneOffset +
+        (Math.random() - 0.5) * 0.8;
+      this.spawnStreamSoldier(spawnX, this.topkhana.z + 1);
+    }
+
+    const mergeZ = warbandZ - 1;
+    for (let i = this.streamActive.length - 1; i >= 0; i--) {
+      const s = this.streamActive[i];
+      s.prevZ = s.z;
+      s.z += CONSTANTS.STREAM_SPEED * dt;
+      if (s.visual) {
+        s.visual.root.position.set(s.x, 0, s.z);
+        SoldierModelFactory.animateSoldier(s.visual, this.scaledTime, true, false, 1.2);
+      }
+
+      // Gate crossing: Worker 2's processStreamSoldier returns null when
+      // no gate plane was crossed between prevZ and z.
+      const ev = this.gateManager.processStreamSoldier(s.x, s.prevZ, s.z, warbandZ);
+      if (ev) {
+        // A 'sub' event removes the passing soldier; skip its merge check.
+        if (this.applyGateStreamEvent(ev, i)) continue;
+      }
+
+      if (s.z >= mergeZ) this.mergeStreamSoldier(i);
+    }
+
+    this.drainMergeQueue();
+  }
+
+  /** Recycles one pooled record into the active stream (no allocation). */
+  private spawnStreamSoldier(x: number, z: number): void {
+    const s = this.streamPool.pop();
+    if (!s) return; // pool exhausted — drop the spawn, never crash
+    s.x = x;
+    s.z = z;
+    s.prevZ = z;
+    s.visual = this.topkhana.acquireStreamVisual();
+    this.streamActive.push(s);
+  }
+
+  /** Swap-removes one active soldier, returning its record + visual. */
+  private removeStreamSoldierAt(index: number): void {
+    const s = this.streamActive[index];
+    const last = this.streamActive.pop()!;
+    if (index < this.streamActive.length) this.streamActive[index] = last;
+    if (s.visual) {
+      this.topkhana.releaseStreamVisual(s.visual);
+      s.visual = null;
+    }
+    s.x = 0;
+    s.z = 0;
+    s.prevZ = 0;
+    this.streamPool.push(s);
+  }
+
+  /**
+   * Applies one gate-stream event. Returns true when the passing soldier
+   * was removed (a 'sub' event), so the caller skips its merge check.
+   * `ev` is typed structurally to match the GateStreamEvent contract
+   * (Worker 2 implements it in Gates.ts).
+   */
+  private applyGateStreamEvent(
+    ev: { op: 'add' | 'mult' | 'sub'; value: number; isGolden: boolean; x: number; z: number; gate: GateData },
+    passingIndex: number
+  ): boolean {
+    // gate_luck draft: a sub gate becomes an add gate while charges remain.
+    let op = ev.op;
+    const value = ev.value;
+    if (op === 'sub' && this.gateLuckCharges > 0) {
+      this.gateLuckCharges--;
+      op = 'add';
+      this.uiManager.showNotification('🍀 LUCKY GATE!', '#4ade80');
+    }
+
+    // Gate-pass sound, once per gate: the stream crosses a gate many
+    // times per run, but the sound plays on the first soldier through
+    // (the old march code played it once per warband crossing).
+    if (!this.soundedGates.has(ev.gate)) {
+      this.soundedGates.add(ev.gate);
+      this.soundManager.playGatePass(op !== 'sub');
+    }
+
+    _textPos.set(ev.x, 4.5, ev.z);
+    if (op === 'add') {
+      for (let n = 0; n < value; n++) {
+        this.spawnStreamSoldier(ev.x + (Math.random() - 0.5) * 0.8, ev.z + 0.5);
+      }
+      this.particles.spawnFloatingText(_textPos, `+${value}`, 'hit');
+      return false;
+    }
+
+    if (op === 'mult') {
+      const k = value;
+      // The passing soldier IS one of the k — spawn k-1 copies at the gate.
+      for (let n = 0; n < k - 1; n++) {
+        this.spawnStreamSoldier(ev.x + (Math.random() - 0.5) * 0.8, ev.z + 0.5);
+      }
+      this.particles.spawnFloatingText(_textPos, `×${k}`, 'combo');
+      this.triggerHitStop(45); // J2: hit-stop on every mult gate
+      this.gateManager.flashGate(ev.gate);
+      this.playerArmy.ripple(); // J4: crowd ripple
+      if (k >= 3) {
+        this.triggerSlowMo(0.8, 0.3);
+        this.vibrate(ev.isGolden ? [50, 60, 80] : [30, 40, 50]);
+        this.soundManager.playGateChime(k);
+        // Pop + gold flash on the counter (pop is for gate multiplies only).
+        this.uiManager.updateArmyCount(this.playerArmy.count, { gold: true });
+        this.playerArmy.groupPulse();
+      } else {
+        this.uiManager.updateArmyCount(this.playerArmy.count);
+      }
+      // Golden x5 (GOLDEN_MULT): same as mult x5, plus shake + big buzz.
+      if (ev.isGolden) this.cameraManager.shake(0.5, 0.3);
+      return false;
+    }
+
+    // 'sub': remove the passing soldier plus (N-1) nearest in-flight
+    // stream soldiers; any shortfall comes off the army count (min 0).
+    let toRemove = value;
+    this.removeStreamSoldierAt(passingIndex);
+    toRemove--;
+    let removed = 1;
+    while (toRemove > 0) {
+      let best = -1;
+      let bestD = Infinity;
+      for (let j = 0; j < this.streamActive.length; j++) {
+        const o = this.streamActive[j];
+        const d = Math.abs(o.z - ev.z) + Math.abs(o.x - ev.x);
+        if (d < bestD) {
+          bestD = d;
+          best = j;
+        }
+      }
+      if (best < 0) break;
+      this.removeStreamSoldierAt(best);
+      toRemove--;
+      removed++;
+    }
+    const shortfall = value - removed;
+    if (shortfall > 0 && this.playerArmy.count > 0) {
+      this.playerArmy.setSquadCount(Math.max(0, this.playerArmy.count - shortfall));
+      this.uiManager.updateArmyCount(this.playerArmy.count);
+    }
+    this.particles.spawnFloatingText(_textPos, `−${value}`, 'loss');
+    this.vibrate(30);
+    return true;
+  }
+
+  /**
+   * A stream soldier reached the warband (z >= warbandZ - 1). Under the
+   * cap it joins immediately; at the cap it queues (FIFO, max 40) and
+   * drains as casualties free slots; a full queue fizzles with a spark.
+   * Merges never pop the counter (pop is for gate multiplies only).
+   */
+  private mergeStreamSoldier(index: number): void {
+    const s = this.streamActive[index];
+    if (this.playerArmy.count < CONSTANTS.MAX_SOLDIER_COUNT) {
+      this.removeStreamSoldierAt(index);
+      this.playerArmy.addWarriors(1);
+      this.uiManager.updateArmyCount(this.playerArmy.count, { pop: false });
+    } else if (this.mergeQueue < CONSTANTS.STREAM_MERGE_QUEUE_MAX) {
+      this.removeStreamSoldierAt(index);
+      this.mergeQueue++;
+    } else {
+      _textPos.set(s.x, 1.5, s.z);
+      this.particles.spawnSparks(_textPos, 6, 0xf59e0b);
+      this.removeStreamSoldierAt(index);
+    }
+  }
+
+  /** Drains queued merges as casualties free slots under the cap. */
+  private drainMergeQueue(): void {
+    if (this.mergeQueue <= 0) return;
+    let drained = 0;
+    while (
+      this.mergeQueue > 0 &&
+      this.playerArmy.count < CONSTANTS.MAX_SOLDIER_COUNT
+    ) {
+      this.mergeQueue--;
+      this.playerArmy.addWarriors(1);
+      drained++;
+    }
+    if (drained > 0) {
+      this.uiManager.updateArmyCount(this.playerArmy.count, { pop: false });
+    }
+  }
+
+  /** Run reset: every in-flight soldier back to the pool, visuals hidden. */
+  private clearStream(): void {
+    for (let i = this.streamActive.length - 1; i >= 0; i--) {
+      this.removeStreamSoldierAt(i);
+    }
+    this.streamSpawnAcc = 0;
+    this.streamSpawnCounter = 0;
+  }
+
+  /**
+   * Stream mode replaces the old gate callback, which also fed the daily
+   * 'gates' mission — so the mission is recorded here instead, once per
+   * gate pair (both gates of a pair share one z) when the warband passes
+   * that z. Tracked in a Set so a gate is never counted twice.
+   */
+  private recordPassedGates(warbandZ: number): void {
+    const gates = this.gateManager.gates;
+    for (let i = 0; i < gates.length; i++) {
+      const z = gates[i].z;
+      if (z <= warbandZ && !this.passedGateZs.has(z)) {
+        this.passedGateZs.add(z);
+        this.save.recordMission('gates');
+      }
+    }
+    // Bound the set on long endless runs (stale pre-wrap zs never match
+    // again, so they are safe to drop).
+    if (this.passedGateZs.size > 200) {
+      for (const z of this.passedGateZs) {
+        if (z < warbandZ - 100) this.passedGateZs.delete(z);
+      }
+    }
+  }
+
+  /**
+   * Clash "vs" readout: while live enemies are within ~30z ahead of the
+   * warband, show "⚔️ <army> vs <enemies>"; otherwise hide it. Only calls
+   * the UI when the counts actually change.
+   */
+  private updateVsReadout(warbandZ: number): void {
+    let enemiesNear = 0;
+    const enemies = this.enemyArmy.enemies;
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i];
+      if (!e.active) continue;
+      const dz = e.position.z - warbandZ;
+      if (dz > -2 && dz < 30) enemiesNear++;
+    }
+    const playerCount = this.playerArmy.count;
+    if (enemiesNear > 0) {
+      if (
+        !this.vsShown ||
+        playerCount !== this.lastVsPlayer ||
+        enemiesNear !== this.lastVsEnemy
+      ) {
+        this.uiManager.updateVs(playerCount, enemiesNear);
+        this.vsShown = true;
+        this.lastVsPlayer = playerCount;
+        this.lastVsEnemy = enemiesNear;
+      }
+    } else if (this.vsShown) {
+      this.uiManager.hideVs();
+      this.vsShown = false;
+      this.lastVsPlayer = -1;
+      this.lastVsEnemy = -1;
+    }
   }
 
   // ---------- Phase 1 (Doomfall draft): in-run war-bonus draft ----------
@@ -2367,6 +2754,18 @@ export class Game {
         this.runCannonFactor *= 0.75;
         this.cannonCooldownTimer = 0;
         this.uiManager.updateCannonCooldown(0);
+        break;
+      // Phase 2 (Topkhana stream): the three stream bonuses (catalogue
+      // entries live in WarBonus.ts). Effects are run-scoped and reset
+      // with the run in resetLevelState.
+      case 'stream_rate':
+        this.streamRateMult *= 1.2;
+        break;
+      case 'stream_width':
+        this.streamLanes = Math.min(3, this.streamLanes + 1);
+        break;
+      case 'gate_luck':
+        this.gateLuckCharges += 1;
         break;
     }
 

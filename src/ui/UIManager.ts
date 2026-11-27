@@ -181,6 +181,11 @@ export class UIManager {
   private commanderIcon: HTMLElement;
   private commanderTitle: HTMLElement;
 
+  // Phase 2 (Topkhana stream): clash "vs" readout (UIManager.updateVs /
+  // hideVs) + gold-flash timer for the army count.
+  private uiVsReadout: HTMLElement;
+  private goldFlashTimeout: number | null = null;
+
   // Phase 1 (Doomfall draft): in-run war-bonus draft modal.
   private draftScreen: HTMLElement;
   private draftCards: HTMLElement;
@@ -283,6 +288,8 @@ export class UIManager {
     this.draftCards = document.getElementById('draft-cards')!;
     this.draftSubtitle = document.getElementById('draft-subtitle')!;
 
+    this.uiVsReadout = document.getElementById('ui-vs-readout')!;
+
     // One delegated listener for every dynamically rendered button.
     document.addEventListener('click', (e) => {
       const target = (e.target as HTMLElement).closest?.('[data-action]') as HTMLElement | null;
@@ -293,13 +300,51 @@ export class UIManager {
 
   // ------------------------------------------------------------------ HUD
 
-  public updateArmyCount(count: number) {
+  /**
+   * Phase 2 (Topkhana stream): big live army counter. Default behaviour
+   * is unchanged — the number pops on every change. opts.pop === false
+   * updates the number WITHOUT the pop (Worker 1 calls this on every
+   * stream merge, ~6+/s, where a constant pop would be noise).
+   * opts.gold === true adds a 0.4s saffron 'gold-flash' (×3+ gates).
+   */
+  public updateArmyCount(count: number, opts?: { pop?: boolean; gold?: boolean }) {
     this.uiArmyCount.textContent = count.toString();
-    // Phase 1: scale-pop on every change — remove, force a reflow, re-add
-    // so the .pop animation restarts even on rapid successive updates.
-    this.uiArmyCount.classList.remove('pop');
-    void this.uiArmyCount.offsetWidth;
-    this.uiArmyCount.classList.add('pop');
+    if (opts?.pop !== false) {
+      // Phase 1: scale-pop on every change — remove, force a reflow, re-add
+      // so the .pop animation restarts even on rapid successive updates.
+      this.uiArmyCount.classList.remove('pop');
+      void this.uiArmyCount.offsetWidth;
+      this.uiArmyCount.classList.add('pop');
+    }
+    if (opts?.gold) {
+      this.uiArmyCount.classList.remove('gold-flash');
+      void this.uiArmyCount.offsetWidth;
+      this.uiArmyCount.classList.add('gold-flash');
+      if (this.goldFlashTimeout !== null) window.clearTimeout(this.goldFlashTimeout);
+      this.goldFlashTimeout = window.setTimeout(() => {
+        this.uiArmyCount.classList.remove('gold-flash');
+        this.goldFlashTimeout = null;
+      }, 400);
+    }
+  }
+
+  /**
+   * Phase 2 (Topkhana stream): clash "vs" readout — "⚔️ 12 vs 34" while
+   * enemies are near the army. Cheap and idempotent: no DOM churn when
+   * the text is unchanged.
+   */
+  public updateVs(playerCount: number, enemyCount: number) {
+    const text = `⚔️ ${playerCount} vs ${enemyCount}`;
+    if (this.uiVsReadout.style.display !== 'block' || this.uiVsReadout.textContent !== text) {
+      this.uiVsReadout.textContent = text;
+      this.uiVsReadout.style.display = 'block';
+    }
+  }
+
+  public hideVs() {
+    if (this.uiVsReadout.style.display !== 'none') {
+      this.uiVsReadout.style.display = 'none';
+    }
   }
 
   /**

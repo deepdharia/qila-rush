@@ -178,6 +178,46 @@
       animation: count-glow 1.6s ease-in-out infinite, army-pop 0.35s ease-out;
     }
 
+    /* Phase 2 (Topkhana stream): gold flash on ×3+ gates — saffron text
+       on a dark chip + scale 1.25 pulse for 0.4s. Listed after .pop so
+       it wins the animation while both classes are present; the chip
+       goes dark so the saffron text stays readable. */
+    @keyframes gold-flash-pulse {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.25); }
+      100% { transform: scale(1); }
+    }
+
+    .army-count.gold-flash {
+      color: #f59e0b;
+      background: linear-gradient(135deg, #451a03 0%, #1a0a03 100%);
+      animation: count-glow 1.6s ease-in-out infinite, gold-flash-pulse 0.4s ease-out;
+    }
+
+    /* Phase 2 (Topkhana stream): clash "vs" readout — centre-top, under
+       the score row. Hidden by default (inline display:none on the
+       element); UIManager.updateVs / hideVs toggle it. */
+    #ui-vs-readout {
+      position: absolute;
+      top: 108px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3;
+      background: rgba(15, 8, 4, 0.9);
+      border: 2px solid #f59e0b;
+      border-radius: 16px;
+      padding: 4px 14px;
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 20px;
+      font-weight: 900;
+      color: #fef3c7;
+      letter-spacing: 1px;
+      white-space: nowrap;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.6), 0 0 10px rgba(245, 158, 11, 0.35);
+      pointer-events: none;
+    }
+
     @keyframes count-glow {
       0%, 100% { text-shadow: 0 2px 4px rgba(0,0,0,0.8), 0 0 6px rgba(56, 189, 248, 0.25); transform: scale(1); }
       50% { text-shadow: 0 2px 4px rgba(0,0,0,0.8), 0 0 14px rgba(253, 224, 71, 0.75); transform: scale(1.05); }
@@ -1283,6 +1323,11 @@
         top: calc(var(--sat) + 96px);
       }
 
+      /* Phase 2: vs readout sits under the lowered score row on phones. */
+      #ui-vs-readout {
+        top: calc(var(--sat) + 140px);
+      }
+
       #boss-hud {
         top: calc(var(--sat) + 132px);
       }
@@ -1351,6 +1396,10 @@
         <!-- Phase 2 (Doomfall endless): current wave, endless runs only -->
         <span class="score-chip" id="ui-wave-chip" style="display:none">🌊 WAVE 1</span>
       </div>
+
+      <!-- Phase 2 (Topkhana stream): clash "vs" readout, centre-top under
+           the score row. Hidden by default; UIManager.updateVs shows it. -->
+      <div id="ui-vs-readout" style="display:none">⚔️ 0 vs 0</div>
 
       <!-- Floating notification banner -->
       <div id="floating-banner">+10 WARRIORS!</div>

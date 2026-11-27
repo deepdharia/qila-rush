@@ -13,6 +13,7 @@
 
 import { generateLevel, type LevelConfig, type WaveDef } from './Levels';
 import { endlessWaveComposition, type EnemyType } from './EnemyTypes';
+import type { GateOp } from '../entities/Gates';
 
 /** Road length owned by one wave (z units). At 7.5/s march, ~9s per wave. */
 export const ENDLESS_SEGMENT = 70;
@@ -61,6 +62,57 @@ export function endlessWaveTypes(wave: number): EnemyType[] {
 /** Boss HP for the Nth boss appearance (wave 5 = 1st, wave 10 = 2nd, ...). */
 export function endlessBossHp(bossIndex: number): number {
   return 450 + 250 * (bossIndex - 1);
+}
+
+/**
+ * Phase 2 (Topkhana stream): one gate pair for an endless segment, tuned
+ * like Levels.ts — small values, since the stream hits each gate many times
+ * per run. Game.armEndlessSegment passes the result straight into
+ * GateManager.createGatePair's opts, so this shape must match it.
+ */
+export interface EndlessGatePair {
+  leftOp: GateOp;
+  leftVal: number;
+  rightOp: GateOp;
+  rightVal: number;
+  golden?: 'left' | 'right';
+  moving?: boolean;
+}
+
+export function endlessGatePair(wave: number, rng: () => number = Math.random): EndlessGatePair {
+  const addBase = 2 + Math.floor(wave / 5);
+  const mult = wave >= 6 && rng() < 0.5 ? 3 : 2;
+  // One side is the good gate; the other is a smaller add (or, from wave 4,
+  // sometimes a small hazard on the far side — never both sides bad).
+  const hazard = wave >= 4 && rng() < 0.3;
+  const goodFirst = rng() < 0.5;
+  const goodOp: GateOp = rng() < 0.55 ? 'mult' : 'add';
+  const goodVal = goodOp === 'mult' ? mult : addBase + Math.floor(rng() * 10);
+  const otherOp: GateOp = hazard ? 'sub' : 'add';
+  const otherVal = hazard
+    ? 2 + Math.floor(rng() * 2)
+    : Math.max(2, addBase + Math.floor(rng() * 3));
+  const pair: EndlessGatePair = {
+    leftOp: goodFirst ? goodOp : otherOp,
+    leftVal: goodFirst ? goodVal : otherVal,
+    rightOp: goodFirst ? otherOp : goodOp,
+    rightVal: goodFirst ? otherVal : goodVal
+  };
+  // Golden x5 on the good side every 5th segment (the boss-wave segments).
+  if (wave % 5 === 0) {
+    if (goodFirst) {
+      pair.leftOp = 'mult';
+      pair.leftVal = 5;
+      pair.golden = 'left';
+    } else {
+      pair.rightOp = 'mult';
+      pair.rightVal = 5;
+      pair.golden = 'right';
+    }
+  }
+  // Moving gates from wave 6 (50% chance).
+  if (wave >= 6 && rng() < 0.5) pair.moving = true;
+  return pair;
 }
 
 /** Lump coin bonus for clearing a boss wave (before coin-magnet scaling). */

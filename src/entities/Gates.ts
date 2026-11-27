@@ -19,6 +19,34 @@ export interface GateData {
   texture: THREE.CanvasTexture;
   // Phase 1 (master plan): pulsing gold ring on x (mult) gates only.
   ringMesh?: THREE.Mesh;
+  // Phase 2 (Topkhana stream): golden x5 gates, moving gates, spent/flash.
+  golden?: boolean;
+  moving?: boolean;
+  moveAmp?: number;
+  moveSpeed?: number;
+  movePhase?: number;
+  baseX?: number;
+  /** Seconds of flash left, recomputed by update() from flashUntil. */
+  flashT?: number;
+  /** Clock time (same clock update() receives) until which the J3 flash runs. */
+  flashUntil?: number;
+  /** True once the warband has marched past — the stream scores no more. */
+  spent?: boolean;
+}
+
+/**
+ * Phase 2 (Topkhana stream): what processStreamSoldier reports when one
+ * stream soldier crosses a live gate plane. Gates only reports — Game
+ * applies the effect and the juice. The gate stays live while the stream
+ * passes; nothing is marked collected here.
+ */
+export interface GateStreamEvent {
+  op: GateOp;
+  value: number;
+  isGolden: boolean;
+  x: number;
+  z: number;
+  gate: GateData;
 }
 
 export class GateManager {
@@ -47,12 +75,16 @@ export class GateManager {
     this.goldMat = new THREE.MeshLambertMaterial({ color: CONSTANTS.COLORS.GOLD });
   }
 
+  // Last clock time update() saw — flashGate() anchors its 0.25s flash to it.
+  private lastTime = 0;
+
   public createGatePair(
     z: number,
     leftOp: GateOp,
     leftVal: number,
     rightOp: GateOp,
-    rightVal: number
+    rightVal: number,
+    opts?: { golden?: 'left' | 'right'; moving?: boolean }
   ) {
     const halfWidth = CONSTANTS.ROAD_WIDTH * 0.48;
     // Left gate centered at -ROAD_WIDTH/4
@@ -61,8 +93,18 @@ export class GateManager {
     const rightX = halfWidth / 2;
     const gateWidth = halfWidth - 0.4;
 
-    this.spawnSingleGate(leftX, z, leftOp, leftVal, gateWidth);
-    this.spawnSingleGate(rightX, z, rightOp, rightVal, gateWidth);
+    // A golden side is forced to mult x5 with the golden look; a moving pair
+    // drifts both sides (see spawnSingleGate).
+    const goldenLeft = opts?.golden === 'left';
+    const goldenRight = opts?.golden === 'right';
+    this.spawnSingleGate(leftX, z, goldenLeft ? 'mult' : leftOp, goldenLeft ? 5 : leftVal, gateWidth, {
+      golden: goldenLeft,
+      moving: opts?.moving
+    });
+    this.spawnSingleGate(rightX, z, goldenRight ? 'mult' : rightOp, goldenRight ? 5 : rightVal, gateWidth, {
+      golden: goldenRight,
+      moving: opts?.moving
+    });
   }
 
   public spawnSingleGate(
@@ -70,7 +112,8 @@ export class GateManager {
     z: number,
     op: GateOp,
     value: number,
-    width: number = 5.2
+    width: number = 5.2,
+    opts?: { golden?: boolean; moving?: boolean }
   ) {
     const isPositive = op !== 'sub';
     const group = new THREE.Group();
@@ -112,7 +155,7 @@ export class GateManager {
     canvas.width = 512;
     canvas.height = 384;
     const texture = new THREE.CanvasTexture(canvas);
-    this.renderGateTexture(canvas, op, value, isPositive);
+    this.renderGateTexture(canvas, op, value, isPositive, opts?.golden === true);
     texture.needsUpdate = true;
 
     // Glowing Portal Field
@@ -130,10 +173,12 @@ export class GateManager {
     // Phase 1 (master plan): a pulsing gold ring on x (mult) gates, so the
     // multiplier reads as the prize at a glance. Reuses the shared gold
     // material and the group's own transform — no new textures, and it
-    // leaves with the group on prune/dispose.
+    // leaves with the group on prune/dispose. Phase 2: golden x5 gates get
+    // a thicker ring (tube 0.14 vs 0.09) that pulses faster in update().
     let ringMesh: THREE.Mesh | undefined;
     if (op === 'mult') {
-      ringMesh = new THREE.Mesh(new THREE.TorusGeometry(1.9, 0.09, 8, 40), this.goldMat);
+      const tube = opts?.golden === true ? 0.14 : 0.09;
+      ringMesh = new THREE.Mesh(new THREE.TorusGeometry(1.9, tube, 8, 40), this.goldMat);
       ringMesh.position.set(0, 2.0, 0.15);
       group.add(ringMesh);
     }
@@ -152,7 +197,16 @@ export class GateManager {
       portalMesh,
       textureCanvas: canvas,
       texture,
-      ringMesh
+      ringMesh,
+      golden: opts?.golden === true,
+      moving: opts?.moving === true,
+      moveAmp: 1.2,
+      moveSpeed: 0.8,
+      movePhase: Math.random() * Math.PI * 2,
+      baseX: x,
+      flashT: 0,
+      flashUntil: 0,
+      spent: false
     });
   }
 
@@ -160,7 +214,8 @@ export class GateManager {
     canvas: HTMLCanvasElement,
     op: GateOp,
     val: number,
-    isPositive: boolean
+    isPositive: boolean,
+    golden: boolean = false
   ) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -169,7 +224,11 @@ export class GateManager {
 
     // Gradient background
     const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    if (op === 'mult') {
+    if (golden) {
+      // Phase 2: golden gates get a brighter gold gradient than plain x gates.
+      grad.addColorStop(0, 'rgba(253, 230, 138, 0.95)');
+      grad.addColorStop(1, 'rgba(217, 119, 6, 0.85)');
+    } else if (op === 'mult') {
       grad.addColorStop(0, 'rgba(245, 158, 11, 0.95)');
       grad.addColorStop(1, 'rgba(180, 83, 9, 0.85)');
     } else if (isPositive) {
@@ -194,7 +253,7 @@ export class GateManager {
     if (op === 'mult') sign = '×';
     if (op === 'sub') sign = '-';
 
-    const text = `${sign}${val}`;
+    const text = golden ? '×5' : `${sign}${val}`;
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -224,7 +283,13 @@ export class GateManager {
     // Subtitle label
     ctx.font = '700 36px Rajdhani, sans-serif';
     ctx.fillStyle = '#fef3c7';
-    const sub = op === 'mult' ? 'ARMY MULTIPLIER' : (isPositive ? 'WARRIORS' : 'HAZARD');
+    const sub = golden
+      ? 'GOLDEN GATE'
+      : op === 'mult'
+        ? 'ARMY MULTIPLIER'
+        : isPositive
+          ? 'WARRIORS'
+          : 'HAZARD';
     ctx.fillText(sub, canvas.width / 2, subY);
   }
 
@@ -261,20 +326,95 @@ export class GateManager {
     }
   }
 
-  public update(time: number) {
+  /**
+   * Phase 2 (Topkhana stream): one stream soldier crossed from prevZ to z
+   * this frame. Returns the first live gate whose plane the soldier crossed
+   * while inside the gate's current x-range (the group's live position, so
+   * moving gates are tested where they are now, not where they spawned).
+   * Gates stay live while the stream passes — nothing is marked collected
+   * here; Game applies the effect and the juice. Returns null when no gate
+   * was crossed. Zero allocations on the no-hit path.
+   */
+  public processStreamSoldier(
+    x: number,
+    prevZ: number,
+    z: number,
+    warbandZ: number
+  ): GateStreamEvent | null {
+    for (let i = 0; i < this.gates.length; i++) {
+      const g = this.gates[i];
+      if (g.spent || g.collected) continue;
+      // A gate is dead once no in-flight stream soldier can still reach
+      // it: soldiers spawn at the cannon (warbandZ - TOPKHANA_TRAIL_Z),
+      // so the gate stays live until the warband is a full trail past it.
+      // update() has not marked it spent yet this frame.
+      if (g.z < warbandZ - CONSTANTS.TOPKHANA_TRAIL_Z) continue;
+      if (prevZ < g.z && g.z <= z) {
+        const gx = g.group.position.x;
+        const half = g.width / 2 + 0.6;
+        if (x >= gx - half && x <= gx + half) {
+          return { op: g.op, value: g.value, isGolden: g.golden === true, x: g.x, z: g.z, gate: g };
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Phase 2 juice (J3): spikes the gate's portal opacity and ring scale
+   * for ~0.25s. Time-based — update() decays it from the last clock it saw,
+   * so no dt is needed here.
+   */
+  public flashGate(gate: GateData): void {
+    gate.flashUntil = this.lastTime + 0.25;
+    gate.flashT = 0.25;
+  }
+
+  public update(time: number, warbandZ?: number) {
+    this.lastTime = time;
     // Subtle animated shimmer on portal fields
     for (let i = 0; i < this.gates.length; i++) {
       const g = this.gates[i];
-      if (!g.collected) {
-        (g.portalMesh.material as THREE.MeshBasicMaterial).opacity =
-          0.82 + Math.sin(time * 6 + i) * 0.12;
-        // Phase 1 (master plan): the gold ring on x (mult) gates pulses,
-        // so the multiplier keeps drawing the eye. Scale-only — the shared
-        // gold material is never touched.
+      if (g.collected) continue;
+      const portalMat = g.portalMesh.material as THREE.MeshBasicMaterial;
+      // Phase 2: moving gates drift side-to-side around their spawn x.
+      if (g.moving) {
+        g.group.position.x =
+          (g.baseX ?? g.x) +
+          Math.sin(time * (g.moveSpeed ?? 0.8) + (g.movePhase ?? 0)) * (g.moveAmp ?? 1.2);
+      }
+      // Phase 2: once the warband is a full cannon-trail past a gate it
+      // is spent — dimmed, ring hidden, and the stream scores no more
+      // through it. (Trail distance, not 2z: in-flight soldiers spawned
+      // at the cannon can still cross it until then.)
+      if (warbandZ !== undefined && !g.spent && warbandZ > g.z + CONSTANTS.TOPKHANA_TRAIL_Z) {
+        g.spent = true;
+        portalMat.opacity = 0.25;
+        if (g.ringMesh) g.ringMesh.visible = false;
+      }
+      if (g.spent) continue;
+      // Phase 2 (J3 flash): while the flash runs, portal pins at full
+      // opacity and the ring spikes; otherwise the usual shimmer + pulse.
+      // Golden rings pulse faster (sin(time*5) vs sin(time*3)).
+      const ringRate = g.golden === true ? 5 : 3;
+      if ((g.flashUntil ?? 0) > time) {
+        const remain = (g.flashUntil ?? 0) - time;
+        g.flashT = remain;
+        portalMat.opacity = 1.0;
         if (g.ringMesh) {
-          const s = 1 + Math.sin(time * 3 + i) * 0.08;
+          const s = (1 + Math.sin(time * ringRate + i) * 0.08) * (1 + remain);
           g.ringMesh.scale.setScalar(s);
         }
+        continue;
+      }
+      g.flashT = 0;
+      portalMat.opacity = 0.82 + Math.sin(time * 6 + i) * 0.12;
+      // Phase 1 (master plan): the gold ring on x (mult) gates pulses,
+      // so the multiplier keeps drawing the eye. Scale-only — the shared
+      // gold material is never touched.
+      if (g.ringMesh) {
+        const s = 1 + Math.sin(time * ringRate + i) * 0.08;
+        g.ringMesh.scale.setScalar(s);
       }
     }
   }
@@ -283,8 +423,18 @@ export class GateManager {
     for (let i = 0; i < this.gates.length; i++) {
       const g = this.gates[i];
       g.collected = false;
+      // Phase 2: clear the stream state too — spent/flash — and put moving
+      // gates back on their spawn x with full portal opacity.
+      g.spent = false;
+      g.flashT = 0;
+      g.flashUntil = 0;
       g.portalMesh.visible = true;
-      if (g.ringMesh) g.ringMesh.visible = true;
+      (g.portalMesh.material as THREE.MeshBasicMaterial).opacity = 0.88;
+      g.group.position.x = g.baseX ?? g.x;
+      if (g.ringMesh) {
+        g.ringMesh.visible = true;
+        g.ringMesh.scale.setScalar(1);
+      }
     }
   }
 

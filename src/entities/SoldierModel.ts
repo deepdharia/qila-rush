@@ -309,7 +309,8 @@ export class SoldierModelFactory {
     time: number,
     isMoving: boolean,
     isShooting: boolean,
-    speedFactor: number = 1.0
+    speedFactor: number = 1.0,
+    squash: number = 1
   ) {
     const t = time * 12 * speedFactor + soldier.animTimeOffset;
     // Stride and bob now scale with speed: a charging crowd runs harder
@@ -369,5 +370,12 @@ export class SoldierModelFactory {
       soldier.leftArm.rotation.y = 0;
       soldier.rightArm.rotation.y = 0;
     }
+
+    // J1 (Phase 2): squash & stretch — Worker 1 passes a ripple wave
+    // through `squash` (1 = neutral). Width compensates half the height
+    // change so the soldier keeps its volume. squash = 1 sets scale
+    // (1, 1, 1), visually identical to before this parameter existed.
+    const squashXz = 1 + (1 - squash) * 0.5;
+    soldier.torsoGroup.scale.set(squashXz, squash, squashXz);
   }
 }

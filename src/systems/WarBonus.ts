@@ -17,7 +17,10 @@ export type WarBonusId =
   | 'flaming_arrows'
   | 'double_volley'
   | 'max_army'
-  | 'cannon_reload';
+  | 'cannon_reload'
+  | 'stream_rate'
+  | 'stream_width'
+  | 'gate_luck';
 
 export interface WarBonusDef {
   id: WarBonusId;
@@ -100,6 +103,29 @@ export const WAR_BONUSES: WarBonusDef[] = [
     name: 'Topkhana Reload',
     effect: 'Cannon recharges 25% faster, ready now',
     pill: '💣 FAST RELOAD'
+  },
+  // Phase 2 (Topkhana stream): stream bonuses — Game.pickDraftBonus applies
+  // the effects; this catalogue only defines them for the draft roll.
+  {
+    id: 'stream_rate',
+    icon: '🌊',
+    name: 'Rapid Stream',
+    effect: 'Cannon fires its stream 20% faster',
+    pill: '🌊 RAPID STREAM'
+  },
+  {
+    id: 'stream_width',
+    icon: '👥',
+    name: 'Twin Stream',
+    effect: '+1 stream lane from the cannon',
+    pill: '👥 TWIN STREAM'
+  },
+  {
+    id: 'gate_luck',
+    icon: '🍀',
+    name: 'Lucky Gates',
+    effect: 'Your next bad gate turns good',
+    pill: '🍀 LUCKY GATE'
   }
 ];
 

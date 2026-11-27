@@ -53,6 +53,19 @@ export const CONSTANTS = {
   MAX_LIVES: 5,
   LIFE_REGEN_MS: 5 * 60 * 1000, // 1 life per 5 minutes
 
+  // --- Phase 2 (master plan): Topkhana stream ---
+  // The cannon-stream is the core input: the Topkhana auto-fires warriors
+  // up the lane (base rate, upgradeable via draft), they pass through
+  // Torana gates and merge into the warband. Soldier cap stays 120 until
+  // Phase 3 (instancing) — MAX_SOLDIER_COUNT is untouched here.
+  STREAM_ENABLED: true,
+  STREAM_RATE_BASE: 6, // warriors per second, per lane
+  STREAM_SPEED: 25, // stream travel speed (z units per second)
+  STREAM_MAX_VISUALS: 30, // pooled stream-soldier visuals (logical soldiers beyond this still exist)
+  STREAM_MERGE_QUEUE_MAX: 40, // soldiers waiting at the cap for a free slot
+  TOPKHANA_TRAIL_Z: 6, // cannon sits this far behind the warband (camera-space fixed; 6 keeps it in frame at army 8 — bottom edge is warbandZ-6.7 — where 8 put it just off-screen)
+  GOLDEN_MULT: 5, // golden gate multiplier
+
   // Colors
   COLORS: {
     SANDSTONE: 0xd4a373,

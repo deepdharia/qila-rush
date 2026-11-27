@@ -45,6 +45,15 @@ export class PlayerArmy {
   private animTimer: number = 0;
   private isShootingState: boolean = false;
 
+  // Phase 2 (Topkhana stream) juice — J4 crowd ripple + group squash pulse.
+  // rippleTimer counts down from 0.6s; while it runs, each soldier's squash
+  // is a travelling sine wave (see update()). squashTimer counts down from
+  // 0.18s; while it runs, the whole group squashes (y 0.86->1, x 1.08->1).
+  private rippleTimer: number = 0;
+  private squashTimer: number = 0;
+  private readonly RIPPLE_TIME = 0.6;
+  private readonly SQUASH_TIME = 0.18;
+
   constructor(
     scene: THREE.Scene,
     projectiles: ProjectileManager,
@@ -86,6 +95,24 @@ export class PlayerArmy {
     this.setSquadCount(Math.round(this.count * factor));
   }
 
+  /**
+   * Phase 2 (Topkhana stream) J4: crowd ripple — a squash wave travels
+   * through the warband over 0.6s after a gate multiply. Called by Game
+   * on every mult gate.
+   */
+  public ripple(): void {
+    this.rippleTimer = this.RIPPLE_TIME;
+  }
+
+  /**
+   * Phase 2 (Topkhana stream): group squash pulse on big multiplies
+   * (x3+) — the whole warband squashes (y 0.86->1, x 1.08->1) over 0.18s.
+   * Children positions scale with the group; that is the intended pulse.
+   */
+  public groupPulse(): void {
+    this.squashTimer = this.SQUASH_TIME;
+  }
+
   private rebuildSoldiers() {
     // Hide or create needed soldiers
     while (this.soldiers.length < this.count) {
@@ -122,6 +149,17 @@ export class PlayerArmy {
   ) {
     this.animTimer += dt;
 
+    // Phase 2 (Topkhana stream): decay the juice timers.
+    if (this.rippleTimer > 0) this.rippleTimer = Math.max(0, this.rippleTimer - dt);
+    if (this.squashTimer > 0) {
+      this.squashTimer = Math.max(0, this.squashTimer - dt);
+      const progress = 1 - this.squashTimer / this.SQUASH_TIME;
+      const scaleY = 0.86 + 0.14 * progress;
+      const scaleX = 1.08 - 0.08 * progress;
+      this.group.scale.set(scaleX, scaleY, 1);
+      if (this.squashTimer <= 0) this.group.scale.set(1, 1, 1);
+    }
+
     if (this.isMoving) {
       // Advance forward
       this.currentZ += CONSTANTS.PLAYER_BASE_SPEED * dt;
@@ -148,13 +186,22 @@ export class PlayerArmy {
     // Update animations for visible soldiers
     const isMoving = this.isMoving;
     const isShooting = this.isShootingState;
+    // Phase 2 (Topkhana stream) J4: while the ripple runs, each soldier's
+    // squash is a travelling wave, decaying with the ripple timer.
+    const rippleActive = this.rippleTimer > 0;
+    const rippleElapsed = this.RIPPLE_TIME - this.rippleTimer;
+    const rippleAmp = rippleActive ? 0.22 * (this.rippleTimer / this.RIPPLE_TIME) : 0;
     for (let i = 0; i < this.count; i++) {
+      const squash = rippleActive
+        ? 1 + rippleAmp * Math.sin(rippleElapsed * 18 - i * 0.35)
+        : 1;
       SoldierModelFactory.animateSoldier(
         this.soldiers[i],
         this.animTimer,
         isMoving,
         isShooting,
-        1.1
+        1.1,
+        squash
       );
     }
   }
@@ -264,6 +311,9 @@ export class PlayerArmy {
     this.isPiercingArrows = false;
     this.volleyExtraArrows = 0;
     this.fireCooldown = 0;
+    this.rippleTimer = 0;
+    this.squashTimer = 0;
+    this.group.scale.set(1, 1, 1);
     this.setSquadCount(CONSTANTS.INITIAL_SOLDIER_COUNT);
     this.group.position.set(0, 0, startZ);
     this.group.rotation.set(0, 0, 0);

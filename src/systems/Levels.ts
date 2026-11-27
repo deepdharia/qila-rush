@@ -17,6 +17,10 @@ export interface GatePairDef {
   leftVal: number;
   rightOp: GateOp;
   rightVal: number;
+  /** Phase 2 (Topkhana stream): which side is the golden x5 gate, if any. */
+  golden?: 'left' | 'right';
+  /** Phase 2: drifts side-to-side (level 6+, ~50% of pairs from the 2nd on). */
+  moving?: boolean;
 }
 
 export interface BarrierDef {
@@ -73,7 +77,9 @@ const WAVE_PATTERNS: WaveDef['pattern'][] = ['v-shape', 'flank', 'line', 'cluste
 function levelOne(): LevelConfig {
   const gates: GatePairDef[] = [
     { z: 25, leftOp: 'add', leftVal: 5, rightOp: 'add', rightVal: 10 },
-    { z: 105, leftOp: 'mult', leftVal: 2, rightOp: 'add', rightVal: 15 },
+    // Phase 2: level 1 gets its golden x5 gate on the 2nd pair (z 105, after
+    // the first wave spawns at z 42) — the spectacle, not a balance break.
+    { z: 105, leftOp: 'mult', leftVal: 5, rightOp: 'add', rightVal: 15, golden: 'left' },
     { z: 175, leftOp: 'mult', leftVal: 3, rightOp: 'add', rightVal: 25 },
     { z: 245, leftOp: 'add', leftVal: 20, rightOp: 'mult', rightVal: 2 }
   ];
@@ -130,12 +136,17 @@ export function generateLevel(id: number, seedOverride?: number): LevelConfig {
   const finishZ = length - 10;
   const endZ = boss ? bossArenaZ : finishZ;
 
-  // --- Gates: 4 pairs early, +1 at 6 and 14, spread along the causeway. ---
-  const gatePairs = 4 + (n >= 6 ? 1 : 0) + (n >= 14 ? 1 : 0);
+  // --- Gates: 5 pairs early, +1 at 6 and 14, spread along the causeway. ---
+  // Phase 2 (Topkhana stream): lower per-gate values — the stream hits each
+  // gate many times per run — and exactly one golden x5 gate per level.
+  const gatePairs = 5 + (n >= 6 ? 1 : 0) + (n >= 14 ? 1 : 0);
   const gates: GatePairDef[] = [];
+  // Which side (true = left) holds each pair's good gate — needed after the
+  // loop to place the golden gate on the good side.
+  const gateGoodSide: boolean[] = [];
   for (let i = 0; i < gatePairs; i++) {
     const z = Math.round(25 + ((endZ - 50) * i) / Math.max(1, gatePairs - 1));
-    const addBase = 5 + Math.floor(n / 3) * 2;
+    const addBase = 2 + Math.floor(n / 4);
     const mult = n >= 6 && rng() < 0.5 ? 3 : 2;
     // One side is the good gate; the other is a smaller add (or, from level 4,
     // sometimes a small hazard on the far side — never both sides bad).
@@ -145,8 +156,9 @@ export function generateLevel(id: number, seedOverride?: number): LevelConfig {
     const goodVal = goodOp === 'mult' ? mult : addBase + Math.floor(rng() * 10);
     const otherOp: GateOp = hazard ? 'sub' : 'add';
     const otherVal = hazard
-      ? 3 + Math.floor(rng() * 5)
-      : Math.max(3, addBase - 2 + Math.floor(rng() * 6));
+      ? 2 + Math.floor(rng() * 2)
+      : Math.max(2, addBase + Math.floor(rng() * 3));
+    gateGoodSide.push(goodFirst);
     gates.push({
       z,
       leftOp: goodFirst ? goodOp : otherOp,
@@ -154,6 +166,45 @@ export function generateLevel(id: number, seedOverride?: number): LevelConfig {
       rightOp: goodFirst ? otherOp : goodOp,
       rightVal: goodFirst ? otherVal : goodVal
     });
+  }
+
+  // Exactly one golden x5 gate per level: a pair from the 2nd on whose z is
+  // after the first wave's spawn (first triggerZ is 12, spawnZ = triggerZ +
+  // 30 = 42) — never before the player has met the first wave. Its good
+  // side becomes mult x5. (rng calls here only affect gates: gates are
+  // generated before barriers/waves, and that order is unchanged.)
+  const firstWaveSpawnZ = 12 + 30;
+  const goldenEligible: number[] = [];
+  for (let i = 1; i < gatePairs; i++) {
+    if (gates[i].z > firstWaveSpawnZ) goldenEligible.push(i);
+  }
+  if (goldenEligible.length > 0) {
+    const gi = goldenEligible[Math.floor(rng() * goldenEligible.length)];
+    if (gateGoodSide[gi]) {
+      gates[gi].leftOp = 'mult';
+      gates[gi].leftVal = 5;
+      gates[gi].golden = 'left';
+    } else {
+      gates[gi].rightOp = 'mult';
+      gates[gi].rightVal = 5;
+      gates[gi].golden = 'right';
+    }
+  }
+
+  // Moving gates from level 6: ~50% of pairs from the 2nd on drift. The
+  // fallback guarantees at least one moving pair per level — a level with
+  // zero would silently drop the feature for a whole level.
+  if (n >= 6) {
+    let anyMoving = false;
+    for (let i = 1; i < gatePairs; i++) {
+      if (rng() < 0.5) {
+        gates[i].moving = true;
+        anyMoving = true;
+      }
+    }
+    if (!anyMoving) {
+      gates[1 + Math.floor(rng() * (gatePairs - 1))].moving = true;
+    }
   }
 
   // --- Barriers: 3 early, +1 at 8, 16, 24. HP scales ~10% per level. ---

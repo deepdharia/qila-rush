@@ -30,6 +30,17 @@ export class BossEnemy {
   private animTimer: number = 0;
   public speed: number = 2.0;
 
+  // J6 (Phase 2): hit-flash — the boss's materials flash white for ~0.12s
+  // on damage. The four body materials (MeshStandardMaterial /
+  // MeshLambertMaterial) all have an emissive channel; the red telegraph
+  // ring is MeshBasicMaterial (no emissive) and is excluded. Original
+  // emissive values are captured once in the constructor and restored —
+  // no materials are created or allocated per frame.
+  private flashMaterials: { emissive: THREE.Color }[] = [];
+  private flashEmissiveOriginal: number[] = [];
+  private flashT: number = 0;
+  private readonly FLASH_DURATION = 0.12;
+
   constructor(scene: THREE.Scene, particles: ParticleSystem, sounds: SoundManager) {
     this.scene = scene;
     this.particles = particles;
@@ -59,6 +70,11 @@ export class BossEnemy {
       roughness: 0.1,
       metalness: 0.95
     });
+
+    // J6: capture the body materials + their original emissive values
+    // (all black by default) for the hit-flash.
+    this.flashMaterials = [bossMat, goldMat, skinMat, bladeMat];
+    this.flashEmissiveOriginal = this.flashMaterials.map((m) => m.emissive.getHex());
 
     this.torsoGroup = new THREE.Group();
     this.torsoGroup.position.y = 0.85 * scale;
@@ -185,6 +201,15 @@ export class BossEnemy {
     this.animTimer += dt;
     this.attackTimer += dt;
 
+    // J6: decay the hit-flash timer; restore original emissive when it ends.
+    if (this.flashT > 0) {
+      this.flashT -= dt;
+      if (this.flashT <= 0) {
+        this.flashT = 0;
+        this.restoreFlash();
+      }
+    }
+
     // Turn to face player
     this.root.lookAt(playerX, 0, playerZ);
 
@@ -264,6 +289,22 @@ export class BossEnemy {
     }
   }
 
+  /**
+   * J6 (Phase 2): flash the boss white for ~0.12s. Worker 1 calls this
+   * where boss damage is applied. Re-flashing while already flashing
+   * just restarts the timer — the emissive is already white, so the
+   * originals (captured once in the constructor) are never overwritten.
+   */
+  public flash(): void {
+    if (!this.active || this.isDefeated) return;
+    this.flashT = this.FLASH_DURATION;
+    for (const m of this.flashMaterials) m.emissive.setHex(0xffffff);
+  }
+
+  private restoreFlash(): void {
+    this.flashMaterials.forEach((m, i) => m.emissive.setHex(this.flashEmissiveOriginal[i]));
+  }
+
   public takeDamage(amount: number): boolean {
     if (!this.active || this.isDefeated) return false;
 
@@ -281,6 +322,8 @@ export class BossEnemy {
     this.isDefeated = true;
     this.active = false;
     this.telegraphCircle.visible = false;
+    this.flashT = 0;
+    this.restoreFlash();
 
     // Dramatic defeat collapse
     this.torsoGroup.rotation.x = 1.2;
@@ -302,6 +345,8 @@ export class BossEnemy {
     this.telegraphCircle.visible = false;
     this.isSlamming = false;
     this.attackTimer = 0;
+    this.flashT = 0;
+    this.restoreFlash();
   }
 
   public dispose() {
